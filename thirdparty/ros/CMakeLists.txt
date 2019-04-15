@@ -1,8 +1,17 @@
 cmake_minimum_required(VERSION 3.2)
 
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-deprecated-declarations")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations")
+
+if (NOT WIN32)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+endif()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 9)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-catch-value")
+endif()
 
 #find_package(catkin REQUIRED COMPONENTS cpp_common roscpp_serialization roscpp_traits rostime roslz4)
 find_package(Boost REQUIRED COMPONENTS date_time filesystem program_options regex)

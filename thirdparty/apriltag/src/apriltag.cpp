@@ -8,13 +8,14 @@
 namespace basalt {
 
 struct ApriltagDetectorData {
-  ApriltagDetectorData()
+  ApriltagDetectorData(int numTags)
       : doSubpixRefinement(true),
         maxSubpixDisplacement(0),
         minTagsForValidObs(4),
         minBorderDistance(4.0),
         blackTagBorder(2),
-        _tagCodes(AprilTags::tagCodes36h11) {
+        _tagCodes(AprilTags::tagCodes36h11),
+        _numTags(numTags) {
     _tagDetector =
         std::make_shared<AprilTags::TagDetector>(_tagCodes, blackTagBorder);
   }
@@ -30,18 +31,22 @@ struct ApriltagDetectorData {
   AprilTags::TagCodes _tagCodes;
   std::shared_ptr<AprilTags::TagDetector> _tagDetector;
 
-  inline int size() { return 36 * 4; }
+  int _numTags;  //!< number of tags in the grid (determines the valid ids)
+
+  inline int size() { return _numTags * 4; }
 };
 
-ApriltagDetector::ApriltagDetector() { data = new ApriltagDetectorData; }
+ApriltagDetector::ApriltagDetector(int numTags) {
+  data = new ApriltagDetectorData(numTags);
+}
 
 ApriltagDetector::~ApriltagDetector() { delete data; }
 
 void ApriltagDetector::detectTags(
     basalt::ManagedImage<uint16_t>& img_raw,
-    Eigen::vector<Eigen::Vector2d>& corners, std::vector<int>& ids,
+    Eigen::aligned_vector<Eigen::Vector2d>& corners, std::vector<int>& ids,
     std::vector<double>& radii,
-    Eigen::vector<Eigen::Vector2d>& corners_rejected,
+    Eigen::aligned_vector<Eigen::Vector2d>& corners_rejected,
     std::vector<int>& ids_rejected, std::vector<double>& radii_rejected) {
   corners.clear();
   ids.clear();

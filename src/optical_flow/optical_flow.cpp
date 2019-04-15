@@ -33,16 +33,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
 #include <basalt/optical_flow/optical_flow.h>
 
 #include <basalt/optical_flow/frame_to_frame_optical_flow.h>
+#include <basalt/optical_flow/multiscale_frame_to_frame_optical_flow.h>
 #include <basalt/optical_flow/patch_optical_flow.h>
 
 namespace basalt {
 
-OpticalFlowBase::Ptr OpticalFlowFactory::getOpticalFlow(
-    const VioConfig& config, const Calibration<double>& cam) {
+OpticalFlowBase::Ptr OpticalFlowFactory::getOpticalFlow(const VioConfig& config, const Calibration<double>& cam) {
   OpticalFlowBase::Ptr res;
 
   if (config.optical_flow_type == "patch") {
@@ -64,9 +63,7 @@ OpticalFlowBase::Ptr OpticalFlowFactory::getOpticalFlow(
         break;
 
       default:
-        std::cerr << "config.optical_flow_pattern "
-                  << config.optical_flow_pattern << " is not supported."
-                  << std::endl;
+        std::cerr << "config.optical_flow_pattern " << config.optical_flow_pattern << " is not supported." << std::endl;
         std::abort();
     }
   }
@@ -90,9 +87,31 @@ OpticalFlowBase::Ptr OpticalFlowFactory::getOpticalFlow(
         break;
 
       default:
-        std::cerr << "config.optical_flow_pattern "
-                  << config.optical_flow_pattern << " is not supported."
-                  << std::endl;
+        std::cerr << "config.optical_flow_pattern " << config.optical_flow_pattern << " is not supported." << std::endl;
+        std::abort();
+    }
+  }
+
+  if (config.optical_flow_type == "multiscale_frame_to_frame") {
+    switch (config.optical_flow_pattern) {
+      case 24:
+        res.reset(new MultiscaleFrameToFrameOpticalFlow<float, Pattern24>(config, cam));
+        break;
+
+      case 52:
+        res.reset(new MultiscaleFrameToFrameOpticalFlow<float, Pattern52>(config, cam));
+        break;
+
+      case 51:
+        res.reset(new MultiscaleFrameToFrameOpticalFlow<float, Pattern51>(config, cam));
+        break;
+
+      case 50:
+        res.reset(new MultiscaleFrameToFrameOpticalFlow<float, Pattern50>(config, cam));
+        break;
+
+      default:
+        std::cerr << "config.optical_flow_pattern " << config.optical_flow_pattern << " is not supported." << std::endl;
         std::abort();
     }
   }

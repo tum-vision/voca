@@ -39,17 +39,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace basalt {
 
 struct SimObservations {
-  Eigen::vector<Eigen::Vector2d> pos;
+  Eigen::aligned_vector<Eigen::Vector2d> pos;
   std::vector<int> id;
 };
 
-}
+}  // namespace basalt
 
 namespace cereal {
 template <class Archive>
 void serialize(Archive& ar, basalt::SimObservations& c) {
   ar(c.pos, c.id);
 }
-}
-
-
+}  // namespace cereal

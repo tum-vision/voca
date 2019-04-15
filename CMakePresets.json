@@ -1,0 +1,134 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "library",
+      "description": "Minimal release build to produce libbasalt.so implementing VIT symbols",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BASALT_BUILD_SHARED_LIBRARY_ONLY": "on"
+      }
+    },
+    {
+      "name": "ci",
+      "description": "CI build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BASALT_BUILD_SHARED_LIBRARY_ONLY": "on",
+        "CMAKE_INSTALL_PREFIX": "/usr",
+        "CMAKE_CXX_FLAGS": "-mtune=haswell -march=haswell",
+        "CMAKE_C_FLAGS": "-mtune=haswell -march=haswell"
+      }
+    },
+    {
+      "name": "ci-test",
+      "description": "CI build with tests",
+      "inherits": "ci",
+      "cacheVariables": {
+        "BASALT_BUILD_TESTS": "on"
+      }
+    },
+    {
+      "name": "development",
+      "description": "Release build with extra binaries and debug symbols",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BASALT_BUILD_SHARED_LIBRARY_ONLY": "off"
+      }
+    },
+    {
+      "name": "asan",
+      "description": "Same as development preset but with AddressSanitizer enabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "AsanRelWithDebInfo",
+        "BASALT_BUILD_SHARED_LIBRARY_ONLY": "off"
+      }
+    },
+    {
+      "name": "release",
+      "description": "Release build with extra binaries",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BASALT_BUILD_SHARED_LIBRARY_ONLY": "off"
+      }
+    },
+    {
+      "name": "rpi4",
+      "description": "Raspiberry PI 4 release build",
+      "inherits": "release",
+      "environment": {
+        "PATH": "${sourceDir}/x-tools/aarch64-rpi3-linux-gnu/bin:$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSROOT": "${sourceDir}/cmake_modules/bookworm-arm64-sysroot",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/RaspberryToolchain.cmake",
+        "CXX_MARCH": "armv8-a+crc",
+        "CXX_MCPU": "cortex-a72"
+      }
+    },
+    {
+      "name": "rpi5",
+      "description": "Raspiberry PI 5 release build",
+      "inherits": "rpi4",
+      "cacheVariables": {
+        "CXX_MARCH": "armv8.2-a+crc+dotprod+fp16+rcpc",
+        "CXX_MCPU": "cortex-a76"
+      }
+    },
+    {
+      "name": "radxa-3w",
+      "description": "Radxa Zero 3W release build",
+      "inherits": "release",
+      "environment": {
+        "PATH": "${sourceDir}/x-tools/aarch64-rpi3-linux-gnu/bin:$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSROOT": "${sourceDir}/cmake_modules/jammy-arm64-sysroot",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/RadxaToolchain.cmake",
+        "CXX_MARCH": "armv8.2-a",
+        "CXX_MCPU": "cortex-a55"
+      }
+    },
+    {
+      "name": "radxa-a7z",
+      "description": "Radxa Cubie A7Z release build",
+      "inherits": "release",
+      "environment": {
+        "PATH": "${sourceDir}/x-tools/aarch64-rpi3-linux-gnu/bin:$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSROOT": "${sourceDir}/cmake_modules/bullseye-arm64-sysroot",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/RadxaToolchain.cmake",
+        "CXX_MARCH": "armv8.2-a+dotprod+fp16",
+        "CXX_MCPU": "cortex-a76.cortex-a55"
+      }
+    },
+    {
+      "name": "full",
+      "description": "Release build with extra binaries, debug symbols, tests and double precision pipeline",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BASALT_BUILD_SHARED_LIBRARY_ONLY": "off",
+        "BASALT_INSTANTIATIONS_DOUBLE": "on",
+        "BASALT_BUILD_TESTS": "on"
+      }
+    }
+  ]
+}

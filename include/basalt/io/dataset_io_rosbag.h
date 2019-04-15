@@ -47,9 +47,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #undef private
 
 #include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/Imu.h>
+
+#include <basalt/utils/filesystem.h>
 
 namespace basalt {
 
@@ -64,14 +67,13 @@ class RosbagVioDataset : public VioDataset {
   // vector of images for every timestamp
   // assumes vectors size is num_cams for every timestamp with null pointers for
   // missing frames
-  std::unordered_map<int64_t, std::vector<std::optional<rosbag::IndexEntry>>>
-      image_data_idx;
+  std::unordered_map<int64_t, std::vector<std::optional<rosbag::IndexEntry>>> image_data_idx;
 
-  Eigen::vector<AccelData> accel_data;
-  Eigen::vector<GyroData> gyro_data;
+  Eigen::aligned_vector<AccelData> accel_data;
+  Eigen::aligned_vector<GyroData> gyro_data;
 
-  std::vector<int64_t> gt_timestamps;        // ordered gt timestamps
-  Eigen::vector<Sophus::SE3d> gt_pose_data;  // TODO: change to eigen aligned
+  std::vector<int64_t> gt_timestamps;                // ordered gt timestamps
+  Eigen::aligned_vector<Sophus::SE3d> gt_pose_data;  // TODO: change to eigen aligned
 
   int64_t mocap_to_imu_offset_ns;
 
@@ -82,14 +84,11 @@ class RosbagVioDataset : public VioDataset {
 
   std::vector<int64_t> &get_image_timestamps() { return image_timestamps; }
 
-  const Eigen::vector<AccelData> &get_accel_data() const { return accel_data; }
-  const Eigen::vector<GyroData> &get_gyro_data() const { return gyro_data; }
-  const std::vector<int64_t> &get_gt_timestamps() const {
-    return gt_timestamps;
-  }
-  const Eigen::vector<Sophus::SE3d> &get_gt_pose_data() const {
-    return gt_pose_data;
-  }
+  const Eigen::aligned_vector<AccelData> &get_accel_data() const { return accel_data; }
+  const Eigen::aligned_vector<GyroData> &get_gyro_data() const { return gyro_data; }
+  const std::vector<int64_t> &get_gt_timestamps() const { return gt_timestamps; }
+  const Eigen::aligned_vector<Sophus::SE3d> &get_gt_pose_data() const { return gt_pose_data; }
+
   int64_t get_mocap_to_imu_offset_ns() const { return mocap_to_imu_offset_ns; }
 
   std::vector<ImageData> get_image_data(int64_t t_ns) {
@@ -104,19 +103,16 @@ class RosbagVioDataset : public VioDataset {
         if (!it->second[i].has_value()) continue;
 
         m.lock();
-        sensor_msgs::ImageConstPtr img_msg =
-            bag->instantiateBuffer<sensor_msgs::Image>(*it->second[i]);
+        sensor_msgs::ImageConstPtr img_msg = bag->instantiateBuffer<sensor_msgs::Image>(*it->second[i]);
         m.unlock();
 
         //        std::cerr << "img_msg->width " << img_msg->width << "
         //        img_msg->height "
         //                  << img_msg->height << std::endl;
 
-        id.img.reset(
-            new ManagedImage<uint16_t>(img_msg->width, img_msg->height));
+        id.img.reset(new ManagedImage<uint16_t>(img_msg->width, img_msg->height));
 
-        if (!img_msg->header.frame_id.empty() &&
-            std::isdigit(img_msg->header.frame_id[0])) {
+        if (!img_msg->header.frame_id.empty() && std::isdigit(img_msg->header.frame_id[0])) {
           id.exposure = std::stol(img_msg->header.frame_id) * 1e-9;
         } else {
           id.exposure = -1;
@@ -135,8 +131,7 @@ class RosbagVioDataset : public VioDataset {
         } else if (img_msg->encoding == "mono16") {
           std::memcpy(id.img->ptr, img_msg->data.data(), img_msg->data.size());
         } else {
-          std::cerr << "Encoding " << img_msg->encoding << " is not supported."
-                    << std::endl;
+          std::cerr << "Encoding " << img_msg->encoding << " is not supported." << std::endl;
           std::abort();
         }
       }
@@ -151,25 +146,20 @@ class RosbagVioDataset : public VioDataset {
 
 class RosbagIO : public DatasetIoInterface {
  public:
-  RosbagIO(bool with_images) : with_images(with_images) {}
+  RosbagIO() {}
 
   void read(const std::string &path) {
+    if (!fs::exists(path)) std::cerr << "No dataset found in " << path << std::endl;
+
     data.reset(new RosbagVioDataset);
 
     data->bag.reset(new rosbag::Bag);
     data->bag->open(path, rosbag::bagmode::Read);
 
-    rosbag::View view(*data->bag, [this](const rosbag::ConnectionInfo *ci) {
-      if (this->with_images)
-        return true;
-      else
-        return ci->datatype == std::string("sensor_msgs/Imu") ||
-               ci->datatype == std::string("geometry_msgs/TransformStamped");
-    });
+    rosbag::View view(*data->bag);
 
     // get topics
-    std::vector<const rosbag::ConnectionInfo *> connection_infos =
-        view.getConnections();
+    std::vector<const rosbag::ConnectionInfo *> connection_infos = view.getConnections();
 
     std::set<std::string> cam_topics;
     std::string imu_topic;
@@ -188,10 +178,10 @@ class RosbagIO : public DatasetIoInterface {
 
       if (info->datatype == std::string("sensor_msgs/Image")) {
         cam_topics.insert(info->topic);
-      } else if (info->datatype == std::string("sensor_msgs/Imu")) {
+      } else if (info->datatype == std::string("sensor_msgs/Imu") && info->topic.rfind("/fcu", 0) != 0) {
         imu_topic = info->topic;
-      } else if (info->datatype ==
-                 std::string("geometry_msgs/TransformStamped")) {
+      } else if (info->datatype == std::string("geometry_msgs/TransformStamped") ||
+                 info->datatype == std::string("geometry_msgs/PoseStamped")) {
         mocap_topic = info->topic;
       } else if (info->datatype == std::string("geometry_msgs/PointStamped")) {
         point_topic = info->topic;
@@ -221,19 +211,17 @@ class RosbagIO : public DatasetIoInterface {
     std::vector<geometry_msgs::TransformStampedConstPtr> mocap_msgs;
     std::vector<geometry_msgs::PointStampedConstPtr> point_msgs;
 
-    std::vector<int64_t>
-        system_to_imu_offset_vec;  // t_imu = t_system + system_to_imu_offset
+    std::vector<int64_t> system_to_imu_offset_vec;    // t_imu = t_system + system_to_imu_offset
     std::vector<int64_t> system_to_mocap_offset_vec;  // t_mocap = t_system +
                                                       // system_to_mocap_offset
 
     std::set<int64_t> image_timestamps;
 
-    for (rosbag::MessageInstance const m : view) {
+    for (const rosbag::MessageInstance &m : view) {
       const std::string &topic = m.getTopic();
 
       if (cam_topics.find(topic) != cam_topics.end()) {
-        sensor_msgs::ImageConstPtr img_msg =
-            m.instantiate<sensor_msgs::Image>();
+        sensor_msgs::ImageConstPtr img_msg = m.instantiate<sensor_msgs::Image>();
         int64_t timestamp_ns = img_msg->header.stamp.toNSec();
 
         auto &img_vec = data->image_data_idx[timestamp_ns];
@@ -252,15 +240,13 @@ class RosbagIO : public DatasetIoInterface {
 
         data->accel_data.emplace_back();
         data->accel_data.back().timestamp_ns = time;
-        data->accel_data.back().data = Eigen::Vector3d(
-            imu_msg->linear_acceleration.x, imu_msg->linear_acceleration.y,
-            imu_msg->linear_acceleration.z);
+        data->accel_data.back().data = Eigen::Vector3d(imu_msg->linear_acceleration.x, imu_msg->linear_acceleration.y,
+                                                       imu_msg->linear_acceleration.z);
 
         data->gyro_data.emplace_back();
         data->gyro_data.back().timestamp_ns = time;
-        data->gyro_data.back().data = Eigen::Vector3d(
-            imu_msg->angular_velocity.x, imu_msg->angular_velocity.y,
-            imu_msg->angular_velocity.z);
+        data->gyro_data.back().data =
+            Eigen::Vector3d(imu_msg->angular_velocity.x, imu_msg->angular_velocity.y, imu_msg->angular_velocity.z);
 
         min_time = std::min(min_time, time);
         max_time = std::max(max_time, time);
@@ -270,8 +256,22 @@ class RosbagIO : public DatasetIoInterface {
       }
 
       if (mocap_topic == topic) {
-        geometry_msgs::TransformStampedConstPtr mocap_msg =
-            m.instantiate<geometry_msgs::TransformStamped>();
+        geometry_msgs::TransformStampedConstPtr mocap_msg = m.instantiate<geometry_msgs::TransformStamped>();
+
+        // Try different message type if instantiate did not work
+        if (!mocap_msg) {
+          geometry_msgs::PoseStampedConstPtr mocap_pose_msg = m.instantiate<geometry_msgs::PoseStamped>();
+
+          geometry_msgs::TransformStampedPtr mocap_new_msg(new geometry_msgs::TransformStamped);
+          mocap_new_msg->header = mocap_pose_msg->header;
+          mocap_new_msg->transform.rotation = mocap_pose_msg->pose.orientation;
+          mocap_new_msg->transform.translation.x = mocap_pose_msg->pose.position.x;
+          mocap_new_msg->transform.translation.y = mocap_pose_msg->pose.position.y;
+          mocap_new_msg->transform.translation.z = mocap_pose_msg->pose.position.z;
+
+          mocap_msg = mocap_new_msg;
+        }
+
         int64_t time = mocap_msg->header.stamp.toNSec();
 
         mocap_msgs.push_back(mocap_msg);
@@ -281,8 +281,8 @@ class RosbagIO : public DatasetIoInterface {
       }
 
       if (point_topic == topic) {
-        geometry_msgs::PointStampedConstPtr mocap_msg =
-            m.instantiate<geometry_msgs::PointStamped>();
+        geometry_msgs::PointStampedConstPtr mocap_msg = m.instantiate<geometry_msgs::PointStamped>();
+
         int64_t time = mocap_msg->header.stamp.toNSec();
 
         point_msgs.push_back(mocap_msg);
@@ -295,19 +295,14 @@ class RosbagIO : public DatasetIoInterface {
     }
 
     data->image_timestamps.clear();
-    data->image_timestamps.insert(data->image_timestamps.begin(),
-                                  image_timestamps.begin(),
-                                  image_timestamps.end());
+    data->image_timestamps.insert(data->image_timestamps.begin(), image_timestamps.begin(), image_timestamps.end());
 
     if (system_to_mocap_offset_vec.size() > 0) {
-      int64_t system_to_imu_offset =
-          system_to_imu_offset_vec[system_to_imu_offset_vec.size() / 2];
+      int64_t system_to_imu_offset = system_to_imu_offset_vec[system_to_imu_offset_vec.size() / 2];
 
-      int64_t system_to_mocap_offset =
-          system_to_mocap_offset_vec[system_to_mocap_offset_vec.size() / 2];
+      int64_t system_to_mocap_offset = system_to_mocap_offset_vec[system_to_mocap_offset_vec.size() / 2];
 
-      data->mocap_to_imu_offset_ns =
-          system_to_imu_offset - system_to_mocap_offset;
+      data->mocap_to_imu_offset_ns = system_to_imu_offset - system_to_mocap_offset;
     }
 
     data->gt_pose_data.clear();
@@ -319,12 +314,10 @@ class RosbagIO : public DatasetIoInterface {
 
         int64_t time = mocap_msg->header.stamp.toNSec();
 
-        Eigen::Quaterniond q(
-            mocap_msg->transform.rotation.w, mocap_msg->transform.rotation.x,
-            mocap_msg->transform.rotation.y, mocap_msg->transform.rotation.z);
+        Eigen::Quaterniond q(mocap_msg->transform.rotation.w, mocap_msg->transform.rotation.x,
+                             mocap_msg->transform.rotation.y, mocap_msg->transform.rotation.z);
 
-        Eigen::Vector3d t(mocap_msg->transform.translation.x,
-                          mocap_msg->transform.translation.y,
+        Eigen::Vector3d t(mocap_msg->transform.translation.x, mocap_msg->transform.translation.y,
                           mocap_msg->transform.translation.z);
 
         int64_t timestamp_ns = time + data->mocap_to_imu_offset_ns;
@@ -338,8 +331,7 @@ class RosbagIO : public DatasetIoInterface {
 
         int64_t time = point_msg->header.stamp.toNSec();
 
-        Eigen::Vector3d t(point_msg->point.x, point_msg->point.y,
-                          point_msg->point.z);
+        Eigen::Vector3d t(point_msg->point.x, point_msg->point.y, point_msg->point.z);
 
         int64_t timestamp_ns = time;  // + data->mocap_to_imu_offset_ns;
         data->gt_timestamps.emplace_back(timestamp_ns);
@@ -350,11 +342,9 @@ class RosbagIO : public DatasetIoInterface {
     std::cout << "Image size: " << data->image_data_idx.size() << std::endl;
 
     std::cout << "Min time: " << min_time << " max time: " << max_time
-              << " mocap to imu offset: " << data->mocap_to_imu_offset_ns
-              << std::endl;
+              << " mocap to imu offset: " << data->mocap_to_imu_offset_ns << std::endl;
 
-    std::cout << "Number of mocap poses: " << data->gt_timestamps.size()
-              << std::endl;
+    std::cout << "Number of mocap poses: " << data->gt_timestamps.size() << std::endl;
   }
 
   void reset() { data.reset(); }
@@ -366,8 +356,6 @@ class RosbagIO : public DatasetIoInterface {
 
  private:
   std::shared_ptr<RosbagVioDataset> data;
-
-  bool with_images;
 };
 
 }  // namespace basalt

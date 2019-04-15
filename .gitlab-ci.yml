@@ -1,76 +1,318 @@
-image: vladyslavusenko/b_image:latest
+# SPDX-License-Identifier: CC0-1.0
+# SPDX-FileCopyrightText: 2023 Collabora, Ltd.
 
-compile:
-  stage: build
-  variables:
-    CXX_MARCH: 'corei7-avx'
+default:
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages:
+  - build
+  - analyze
+  - release
+  - evaluate
+
+.ccache:
   before_script:
-    - mkdir -p ccache
-    - export CCACHE_BASEDIR=${PWD}
-    - export CCACHE_DIR=${PWD}/ccache
-  cache:
-    paths:
-    - ccache/
+    - export CCACHE_BASEDIR="$PWD"
+    - export CCACHE_DIR="/ccache"
+    - export CCACHE_COMPILERCHECK=content
+    - ccache --zero-stats || true
+    - ccache --show-stats || true
+  after_script:
+    - export CCACHE_DIR="/ccache"
+    - ccache --show-stats -v
+
+gcc-ubuntu-2204:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2204
+  stage: build
+  when: manual
   script:
-    - ./scripts/update_submodules.sh
-    - mkdir build
-    - cd build
-    - cmake .. -DCMAKE_BUILD_TYPE=Release -DCXX_MARCH=${CXX_MARCH} -DCMAKE_INSTALL_PREFIX=/usr/
-    - make -j3
-    - make package
-    - cd test/
-    - ctest -V
-    - cd ../../
-    - mkdir deb_bionic
-    - cp build/*.deb deb_bionic/
+    - echo BUILD_UBUNTU_2204_JOB_ID=$CI_JOB_ID >> release.env
+    - cmake --preset=ci
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-ubuntu-22.04-haswell-amd64.deb
+  artifacts:
+    name: basalt-monado-ubuntu-22.04-haswell-amd64
+    expose_as: "basalt-monado-ubuntu-2204-haswell-amd64-deb"
+    paths:
+      - "basalt-monado-ubuntu-22.04-haswell-amd64.deb"
+    reports:
+      dotenv: release.env
+
+gcc-ubuntu-2404-wtest:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_UBUNTU_2404_JOB_ID=$CI_JOB_ID >> release.env
+    - cmake --preset=ci-test
+    - time cmake --build build
+    - ctest --output-on-failure --test-dir build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-ubuntu-24.04-haswell-amd64.deb
+  artifacts:
+    name: basalt-monado-ubuntu-24.04-haswell-amd64
+    expose_as: "basalt-monado-ubuntu-2404-haswell-amd64-deb"
+    paths:
+      - "basalt-monado-ubuntu-24.04-haswell-amd64.deb"
+    reports:
+      dotenv: release.env
+
+clang19-ubuntu-2404:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - apt-get update && apt-get install -y clang-19
+    - export CC=clang-19 CXX=clang++-19
+    - cmake --preset=ci
+    - time cmake --build build
+
+aarch64-raspberry-bookworm:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RASPBERRY_BOOKWORM_JOB_ID=$CI_JOB_ID >> release.env
+    - curl -fL -sS -O https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bookworm-arm64-sysroot.tar.xz
+    - curl -fL -sS -O https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf bookworm-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=rpi4
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-raspberry-bookworm-pi4-aarch64.deb
+    - cd ..
+    - cmake --preset=rpi5
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-raspberry-bookworm-pi5-aarch64.deb
+  artifacts:
+    name: basalt-monado-raspberry-bookworm
+    expose_as: "basalt-monado-raspberry-bookworm-aarch64-debs"
+    paths:
+      - "basalt-monado-raspberry-bookworm-pi4-aarch64.deb"
+      - "basalt-monado-raspberry-bookworm-pi5-aarch64.deb"
+    reports:
+      dotenv: release.env
+
+aarch64-radxa-jammy:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RADXA_JAMMY_JOB_ID=$CI_JOB_ID >> release.env
+    - curl -fL -sS -O https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/jammy-arm64-sysroot.tar.xz
+    - curl -fL -sS -O https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf jammy-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=radxa-3w
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-radxa-jammy-aarch64.deb
+  artifacts:
+    name: basalt-monado-radxa-jammy
+    expose_as: "basalt-monado-radxa-jammy-aarch64"
+    paths:
+      - "basalt-monado-radxa-jammy-aarch64.deb"
+    reports:
+      dotenv: release.env
+
+aarch64-radxa-bullseye:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RADXA_BULLSEYE_JOB_ID=$CI_JOB_ID >> release.env
+    - curl -fL -sS -O https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bullseye-arm64-sysroot.tar.xz
+    - curl -fL -sS -O https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf bullseye-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=radxa-a7z
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-radxa-bullseye-aarch64.deb
+  artifacts:
+    name: basalt-monado-radxa-bullseye
+    expose_as: "basalt-monado-radxa-bullseye-aarch64"
+    paths:
+      - "basalt-monado-radxa-bullseye-aarch64.deb"
+    reports:
+      dotenv: release.env
+
+clangd-tidy-delta:
+  stage: analyze
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404 # required for /venv
+  when: manual
+  script:
+    - git fetch origin $CI_DEFAULT_BRANCH
+    - cmake -B build
+    - git diff origin/$CI_DEFAULT_BRANCH --exit-code || IN_MR=$?
+    - (( $IN_MR )) && COMPARISON_BRANCH=origin/$CI_DEFAULT_BRANCH || COMPARISON_BRANCH=HEAD~1
+    - echo $COMPARISON_BRANCH
+    - source /venv/bin/activate
+    - git diff $COMPARISON_BRANCH --name-only | xargs clangd-tidy --clangd-executable=/clangd/bin/clangd -p build -j $(nproc) --github --color always
+
+format:
+  stage: analyze
+  when: manual
+  script:
+    - ./scripts/format.sh
+    - git diff --exit-code
+
+release:
+  stage: release
+  when: manual
+  script:
+    - echo "Releasing artifacts of previous jobs"
+    - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
+    - chmod +x /usr/local/bin/release-cli
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy", "aarch64-radxa-bullseye"]
+  release:
+    name: "Release of $CI_COMMIT_SHORT_SHA"
+    tag_name: "release-$CI_COMMIT_SHORT_SHA"
+    description: "Release of Monado's Basalt for $CI_COMMIT_SHORT_SHA"
+    assets:
+      links:
+        - name: "Ubuntu 22.04 .deb (lib only, amd64, -march=haswell)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2204_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-22.04-haswell-amd64.deb"
+          link_type: package
+        - name: "Ubuntu 24.04 .deb (lib only, amd64, -march=haswell)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2404_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-24.04-haswell-amd64.deb"
+          link_type: package
+        - name: "Raspberry Pi 4: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a72)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi4-aarch64.deb"
+          link_type: package
+        - name: "Raspberry Pi 5: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a76)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi5-aarch64.deb"
+          link_type: package
+        - name: "Radxa Zero 3W: Ubuntu 22.04 .deb (aarch64, -mcpu=cortex-a55)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RADXA_JAMMY_JOB_ID}/artifacts/raw/basalt-monado-radxa-jammy-aarch64.deb"
+          link_type: package
+        - name: "Radxa Cubie A7Z: Debian 11 bullseye .deb (aarch64, -mcpu=cortex-a76.cortex-a55)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RADXA_BULLSEYE_JOB_ID}/artifacts/raw/basalt-monado-radxa-bullseye-aarch64.deb"
+          link_type: package
+
+create-evaluation:
+  stage: evaluate
+  when: manual
+  variables:
+    EVALSETS: "quickset1"
+    # EVALSETS: "msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room"
+    DETERMINISTIC: "1"
+    NUM_THREADS: "4"
+    TIMING_EVALSETS: "EMH02,TR2,MOO02,MIO02,MGO02"
+    TIMING_DETERMINISTIC: "1"
+    TIMING_REPETITIONS: "3"
+    TIMING_NUM_THREADS: "0"
+  script:
+    - echo "Generating evaluation pipeline with the following arguments"
+    - echo $EVALSETS, $DETERMINISTIC, $NUM_THREADS
+    - echo $TIMING_EVALSETS, $TIMING_DETERMINISTIC, $TIMING_REPETITIONS, $TIMING_NUM_THREADS
+    - .ci/cievalgen.py --deterministic $DETERMINISTIC --num_threads $NUM_THREADS --timing_deterministic $TIMING_DETERMINISTIC --timing_repetitions $TIMING_REPETITIONS --timing_num_threads $TIMING_NUM_THREADS .ci/evaluation.json $EVALSETS $TIMING_EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
   artifacts:
     paths:
-    - deb_bionic/*.deb
-    expire_in: 1 week
+      - .ci/cieval.yaml
 
-compile_16_04:
-  stage: build
-  before_script:
-    - mkdir -p ccache
-    - export CCACHE_BASEDIR=${PWD}
-    - export CCACHE_DIR=${PWD}/ccache
-  cache:
-    paths:
-    - ccache/
+do-evaluation:
+  stage: evaluate
+  needs: ["create-evaluation"]
+  resource_group: gate # Prevents other evaluation pipelines from starting until this one finishes, requires oldest_first
+  trigger:
+    include:
+      - artifact: .ci/cieval.yaml
+        job: create-evaluation
+    strategy: depend
+
+get-results:
+  stage: evaluate
+  needs: ["do-evaluation"]
   script:
-    - ./scripts/update_submodules.sh
-    - mkdir build
-    - cd build
-    - cmake .. -DCMAKE_BUILD_TYPE=Release -DCXX_MARCH=${CXX_MARCH} -DCMAKE_INSTALL_PREFIX=/usr/
-    - make -j3
-    - make package
-    - cd test/
-    - ctest -V
-    - cd ../../
-    - mkdir deb_xenial
-    - cp build/*.deb deb_xenial/
+    - >
+      if [ -n "$READ_PROJECT_TOKEN" ]; then
+        echo "Using READ_PROJECT_TOKEN to access the API";
+        export AUTH="Authorization: Bearer ${READ_PROJECT_TOKEN}"
+      else
+        echo "READ_PROJECT_TOKEN is not set, job will only work if repo is public";
+        export AUTH=""
+      fi
+    - curl -H "$AUTH" -s "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/bridges" > output.json
+    - export EVAL_PIPELINE_ID=$(cat output.json | jq '.[] | select(.name=="do-evaluation") | .downstream_pipeline.id')
+    - echo $EVAL_PIPELINE_ID
+    - curl -H "$AUTH" -s "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/pipelines/${EVAL_PIPELINE_ID}/jobs" > output.json
+    - export ZIP_JOB_ID=$(cat output.json | jq -r '.[] | select(.name=="zip") | .id')
+    - echo $ZIP_JOB_ID
+    - curl -H "$AUTH" -L --output artifacts.zip "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/jobs/${ZIP_JOB_ID}/artifacts"
+    - unzip -o artifacts.zip # Generates results.zip and timing-results.zip
   artifacts:
+    name: "results"
     paths:
-    - deb_xenial/*.deb
-    expire_in: 1 week
-  only:
-    - master
-  image: vladyslavusenko/b_image_xenial:latest
+      - results.zip
+      - timing-results.zip
 
-deploy:
-  stage: deploy
-  before_script:
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-    - chmod 644 ~/.ssh/known_hosts
-  variables:
-    GIT_STRATEGY: none
-  only:
-    - master
+report:
+  stage: evaluate
+  tags: [basalt-evaluation-box]
+  needs: [get-results]
   script:
-    - scp deb_xenial/*.deb $REPOSITORY_URL/xenial/    
-    - scp deb_bionic/*.deb $REPOSITORY_URL/bionic/
-
+    - apt-get update && apt-get install -y pandoc
+    - source /xrtmet/.venv-docker/bin/activate # if field doesnt exist, read .ci/README.md
+    - unzip -o results.zip
+    - echo "# Evaluation" > report.md
+    - echo "" >> report.md
+    - cat results/README.md >> report.md
+    - echo "" >> report.md
+    - echo "## Tables" >> report.md
+    - echo "" >> report.md
+    - /xrtmet/batch.py results /xrtmet/test/data/targets --metrics atec rtec timing memory --highlights bold --save_file batch.json >> report.md
+    - mv batch.json results/
+    - echo "" >> report.md
+    - unzip -o timing-results.zip
+    - echo "# Timing Results" >> report.md
+    - echo "" >> report.md
+    - cat timing-results/README.md >> report.md
+    - echo "" >> report.md
+    - echo "## Tables" >> report.md
+    - /xrtmet/batch.py timing-results /xrtmet/test/data/targets --metrics timing memory --highlights bold --save_file timing-batch.json >> report.md
+    - mv timing-batch.json timing-results/
+    - echo "" >> report.md
+    - echo "## Stats" >> report.md
+    - echo '```python' >> report.md
+    - |
+      find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
+        rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
+        png="$rel_dir/$(basename "$csv" .csv).png"
+        /xrtmet/timing.py -p -fc 4 -lc -2 "$csv" --save_plot $png >> report.md
+      done
+    - echo '```' >> report.md
+    - echo "" >> report.md
+    - echo "## Plots" >> report.md
+    - echo "" >> report.md
+    - |
+      find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
+        rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
+        png="$rel_dir/$(basename "$csv" .csv).png"
+        echo "- Timing plot for $csv:" >> report.md
+        echo "  ![Timing plot]($png)" >> report.md
+      done
+    - pandoc --metadata title="Evaluation Report" --metadata document-css=false --toc --standalone --to html5 --include-in-header scripts/report/style.html report.md --output report.html
+  artifacts:
+    name: report
+    expose_as: "Results and metrics"
+    paths:
+      - report.md
+      - report.html
+      - timing-results/
+      - results/

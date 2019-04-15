@@ -1,62 +1,101 @@
-## Basalt
-For more information see https://vision.in.tum.de/research/vslam/basalt
+# Basalt for Monado
 
-![teaser](doc/img/teaser.png)
-
-This project contains tools for:
-* Camera, IMU and motion capture calibration.
-* Visual-inertial odometry and mapping.
-* Simulated environment to test different components of the system.
-
-
-## Related Publications
-Visual-Inertial Odometry and Mapping:
-* **Visual-Inertial Mapping with Non-Linear Factor Recovery**, V. Usenko, N. Demmel, D. Schubert, J. Stückler, D. Cremers, In [[arXiv:]](https://arxiv.org/abs/).
-
-Calibration (explains implemented camera models):
-* **The Double Sphere Camera Model**, V. Usenko and N. Demmel and D. Cremers, In 2018 International Conference on 3D Vision (3DV), [[DOI:10.1109/3DV.2018.00069]](https://doi.org/10.1109/3DV.2018.00069), [[arXiv:1807.08957]](https://arxiv.org/abs/1807.08957).
-
-Calibration (demonstrates how these tools can be used for dataset calibration):
-* **The TUM VI Benchmark for Evaluating Visual-Inertial Odometry**, D. Schubert, T. Goll,  N. Demmel, V. Usenko, J. Stückler, D. Cremers, In 2018 International Conference on Intelligent Robots and Systems (IROS), [[DOI:10.1109/IROS.2018.8593419]](https://doi.org/10.1109/IROS.2018.8593419), [[arXiv:1804.06120]](https://arxiv.org/abs/1804.06120).
-
+This is a fork of [Basalt](https://gitlab.com/VladyslavUsenko/basalt) improved
+for tracking XR devices with
+[Monado](https://gitlab.freedesktop.org/monado/monado). Many thanks to the
+Basalt authors.
 
 ## Installation
-### APT installation for Ubuntu 16.04 and 18.04 (Fast)
-Set up keys
-```
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0D97B6C9
-```
-Add the repository to the sources list. On **Ubuntu 18.04** run:
-```
-sudo sh -c 'echo "deb [arch=amd64] http://packages.usenko.eu/ubuntu bionic main" > /etc/apt/sources.list.d/basalt.list'
-```
-On **Ubuntu 16.04** run:
-```
-sudo sh -c 'echo "deb [arch=amd64] http://packages.usenko.eu/ubuntu xenial main" > /etc/apt/sources.list.d/basalt.list'
-```
-Update the Ubuntu package index and install Basalt:
-```
-sudo apt-get update
-sudo apt-get install basalt
-```
-### Source installation for Ubuntu 18.04 and MacOS 10.14 Mojave
-Clone the source code for the project
-```
-git clone --recursive https://gitlab.com/VladyslavUsenko/basalt.git
-cd basalt
-./scripts/install_deps.sh
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
-make -j8
-```
-NOTE: It is possible to compile the code on Ubuntu 16.04, but you need to install cmake-3.10 and gcc-7. See corresponding [Dockerfile](docker/b_image_xenial/Dockerfile) as an example.
+
+- **Prebuilt (Ubuntu/Raspberry/Radxa)**: Download [latest .deb](https://gitlab.freedesktop.org/mateosss/basalt/-/releases) and install with
+
+  ```bash
+  sudo apt install -y ./basalt-monado-*.deb
+  ```
+
+- **From source (Linux)**
+
+  ```bash
+  git clone --recursive https://gitlab.freedesktop.org/mateosss/basalt.git
+  cd basalt && ./scripts/install_deps.sh
+  cmake --preset library # use "development" instead of "library" if you want extra binaries and debug symbols
+  sudo cmake --build build --target install
+  ```
+
+- **From source (Windows)**: See the [build guide](doc/monado/Windows.md) for Windows.
 
 ## Usage
-* [Camera, IMU and Mocap calibration.](doc/Calibration.md)
-* [Visual-inertial odometry and mapping.](doc/VioMapping.md)
-* [Simulation tools to test different components of the system.](doc/Simulation.md)
 
-## Licence
-The code for this practical course is provided under a BSD 3-clause license. See the LICENSE file for details.
-Note also the different licenses of thirdparty submodules.
+If you want to run OpenXR application with Monado, you need to set the
+environment variable `VIT_SYSTEM_LIBRARY_PATH` to the path of the basalt library.
+
+By default, Monado will try to load the library from `/usr/lib/libbasalt.so` if
+the environment variable is not set.
+
+If you want to test whether everything is working you can download a short dataset with [EuRoC (ASL) format](https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) format like [`MOO09_short_1_updown`](https://huggingface.co/datasets/collabora/monado-slam-datasets/resolve/main/M_monado_datasets/MO_odyssey_plus/MOO_others/MOO09_short_1_updown.zip?download=true) from the [Monado SLAM datasets](https://huggingface.co/datasets/collabora/monado-slam-datasets):
+
+```bash
+wget https://huggingface.co/datasets/collabora/monado-slam-datasets/resolve/main/M_monado_datasets/MO_odyssey_plus/MOO_others/MOO09_short_1_updown.zip
+unzip MOO09_short_1_updown.zip
+```
+
+- **Try it standalone with a dataset (requires extra binaries)**
+
+  ```bash
+  basalt_vio --show-gui 1 --dataset-path MOO09_short_1_updown/ --dataset-type euroc --cam-calib /usr/share/basalt/msdmo_calib.json --config-path /usr/share/basalt/msdmo_config.json
+  ```
+
+- **Use a RealSense camera without Monado (requires extra binaries)**
+  You'll need to calibrate your camera if you want the best results but meanwhile you can try with these calibration files instead.
+
+  - RealSense D455 (and maybe also D435)
+
+    ```bash
+    basalt_rs_t265_vio --is-d455 --cam-calib /usr/share/basalt/d455_calib.json --config-path /usr/share/basalt/default_config.json
+    ```
+
+  - Realsense T265: Get t265_calib.json from [this issue](https://gitlab.com/VladyslavUsenko/basalt/-/issues/52) and run
+
+    ```bash
+    basalt_rs_t265_vio --cam-calib t265_calib.json --config-path /usr/share/basalt/default_config.json
+    ```
+
+- **Try it through `monado-cli` with a dataset**
+
+  ```bash
+  monado-cli slambatch MOO09_short_1_updown/ /usr/share/basalt/msdmo.toml results
+  ```
+
+- **Try it with `monado`, a dataset, and an OpenXR app**
+
+  ```bash
+  # Run monado-service with a fake "euroc device" driver
+  export EUROC_PATH=MOO09_short_1_updown/ # dataset path
+  export EUROC_HMD=false # false for controller tracking
+  export EUROC_PLAY_FROM_START=true # produce samples right away
+  export SLAM_CONFIG=/usr/share/basalt/msdmo.toml # includes calibration
+  export SLAM_SUBMIT_FROM_START=true # consume samples right away
+  export XRT_DEBUG_GUI=1 # enable monado debug ui
+  monado-service &
+
+  # Get and run a sample OpenXR application
+  wget https://gitlab.freedesktop.org/wallbraker/apps/-/raw/main/VirtualGround-x86_64.AppImage
+  chmod +x VirtualGround-x86_64.AppImage
+  ./VirtualGround-x86_64.AppImage normal
+  ```
+
+- **Use a real device in Monado**.
+
+  When using a real device driver you might want to enable the `XRT_DEBUG_GUI=1` and `SLAM_UI=1` environment variables to show debug GUIs of Monado and Basalt respectively.
+
+  Monado has a couple of drivers supporting SLAM tracking (and thus Basalt). Most of them should work without any user input.
+
+  - WMR ([troubleshoot](doc/monado/WMR.md))
+  - Rift S (might need to press "Submit to SLAM", like the Vive Driver).
+  - Northstar / DepthAI ([This hand-tracking guide](https://monado.freedesktop.org/handtracking) has a depthai section).
+  - Vive Driver (Valve Index) ([read before using](doc/monado/Vive.md))
+  - RealSense Driver ([setup](doc/monado/Realsense.md)).
+
+## Development
+
+If you want to set up your build environment for developing and iterating on Basalt, see the [development guide](doc/Development.md).

@@ -49,8 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/calibration/aprilgrid.h>
 #include <basalt/calibration/calibration_helper.h>
-#include <basalt/utils/image.h>
 #include <basalt/utils/test_utils.h>
+#include <basalt/utils/vis_utils.h>
 #include <basalt/utils/sophus_utils.hpp>
 
 namespace basalt {
@@ -60,9 +60,8 @@ class SplineOptimization;
 
 class CamImuCalib {
  public:
-  CamImuCalib(const std::string &dataset_path, const std::string &dataset_type,
-              const std::string &cache_path,
-              const std::string &cache_dataset_name, int skip_images,
+  CamImuCalib(const std::string &dataset_path, const std::string &dataset_type, const std::string &aprilgrid_path,
+              const std::string &cache_path, const std::string &cache_dataset_name, int skip_images,
               const std::vector<double> &imu_noise, bool show_gui = true);
 
   ~CamImuCalib();
@@ -89,12 +88,15 @@ class CamImuCalib {
 
   void optimize();
 
-  void optimizeWithParam(bool print_info,
-                         std::map<std::string, double> *stats = nullptr);
+  bool optimizeWithParam(bool print_info, std::map<std::string, double> *stats = nullptr);
 
   void saveCalib();
 
   void saveMocapCalib();
+
+  void saveCamImuTransform();
+
+  void loadCamImuTransform();
 
   void drawImageOverlay(pangolin::View &v, size_t cam_id);
 
@@ -109,23 +111,23 @@ class CamImuCalib {
  private:
   static constexpr int UI_WIDTH = 300;
 
-  AprilGrid april_grid;
-
   VioDatasetPtr vio_dataset;
 
-  tbb::concurrent_unordered_map<TimeCamId, CalibCornerData> calib_corners;
-  tbb::concurrent_unordered_map<TimeCamId, CalibCornerData>
-      calib_corners_rejected;
-  tbb::concurrent_unordered_map<TimeCamId, CalibInitPoseData> calib_init_poses;
+  CalibCornerMap calib_corners;
+  CalibCornerMap calib_corners_rejected;
+  CalibInitPoseMap calib_init_poses;
 
   std::shared_ptr<std::thread> processing_thread;
 
   std::shared_ptr<SplineOptimization<5, double>> calib_opt;
 
-  std::map<TimeCamId, Eigen::vector<Eigen::Vector2d>> reprojected_corners;
+  std::map<TimeCamId, ProjectedCornerData> reprojected_corners;
 
   std::string dataset_path;
   std::string dataset_type;
+
+  AprilGrid april_grid;
+
   std::string cache_path;
   std::string cache_dataset_name;
 
@@ -168,6 +170,22 @@ class CamImuCalib {
   pangolin::Var<bool> opt_mocap;
 
   pangolin::Var<double> huber_thresh;
+
+  pangolin::Var<bool> opt_until_convg;
+  pangolin::Var<double> stop_thresh;
+
+  pangolin::Var<bool> show_tweak_menu;
+  pangolin::Var<std::string> tweak_title;
+  pangolin::Var<int> cam_index;
+  pangolin::Var<double> px;
+  pangolin::Var<double> py;
+  pangolin::Var<double> pz;
+  pangolin::Var<double> qx;
+  pangolin::Var<double> qy;
+  pangolin::Var<double> qz;
+  pangolin::Var<double> qw;
+  pangolin::Var<std::function<void(void)>> load_T_i_c;
+  pangolin::Var<std::function<void(void)>> save_T_i_c;
 
   pangolin::Plotter *plotter;
   pangolin::View *img_view_display;

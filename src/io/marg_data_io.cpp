@@ -33,15 +33,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
 #include <basalt/io/marg_data_io.h>
 
-#include <pangolin/image/image_io.h>
-
 #include <basalt/serialization/headers_serialization.h>
-
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+#include <basalt/utils/filesystem.h>
 
 namespace basalt {
 
@@ -122,6 +117,8 @@ MargDataSaver::MargDataSaver(const std::string& path) {
 MargDataLoader::MargDataLoader() : out_marg_queue(nullptr) {}
 
 void MargDataLoader::start(const std::string& path) {
+  if (!fs::exists(path)) std::cerr << "No marg. data found in " << path << std::endl;
+
   auto func = [&, path]() {
     std::string img_path = path + "/images/";
 
@@ -144,7 +141,7 @@ void MargDataLoader::start(const std::string& path) {
     std::map<int64_t, std::string> filenames;
 
     for (auto& p : fs::directory_iterator(path)) {
-      std::string filename = p.path().filename();
+      std::string filename = p.path().filename().string();
       if (!std::isdigit(filename[0])) continue;
 
       size_t lastindex = filename.find_last_of(".");
@@ -205,7 +202,7 @@ void load(Archive& ar, basalt::ManagedImage<T>& m) {
 template <class Archive>
 void serialize(Archive& ar, basalt::OpticalFlowResult& m) {
   ar(m.t_ns);
-  ar(m.observations);
+  ar(m.keypoints);
   ar(m.input_images);
 }
 
@@ -222,7 +219,7 @@ void serialize(Archive& ar, basalt::ImageData& m) {
 }
 
 template <class Archive>
-void serialize(Archive& ar, Eigen::AffineCompact2f& m) {
+static void serialize(Archive& ar, Eigen::AffineCompact2f& m) {
   ar(m.matrix());
 }
 }  // namespace cereal

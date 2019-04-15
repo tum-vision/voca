@@ -34,12 +34,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #pragma once
 
+#include <basalt/calibration/aprilgrid.h>
 #include <basalt/calibration/calibration_helper.h>
 #include <basalt/optimization/poses_linearize.h>
 
-#include <basalt/camera/unified_camera.hpp>
-
-#include <basalt/utils/image.h>
+#include <tbb/parallel_reduce.h>
 
 namespace basalt {
 
@@ -56,30 +55,12 @@ class PosesOptimization {
   using Vector4 = typename LinearizeT::Vector4;
   using VectorX = typename LinearizeT::VectorX;
 
-  using AprilgridCornersDataIter =
-      typename Eigen::vector<AprilgridCornersData>::const_iterator;
+  using AprilgridCornersDataIter = typename Eigen::aligned_vector<AprilgridCornersData>::const_iterator;
 
  public:
-  PosesOptimization() {}
+  PosesOptimization() : lambda(1e-6), min_lambda(1e-12), max_lambda(100), lambda_vee(2) {}
 
-  bool initializeIntrinsics(
-      size_t cam_id, const Eigen::vector<Eigen::Vector2d> &corners,
-      const std::vector<int> &corner_ids,
-      const Eigen::vector<Eigen::Vector4d> &aprilgrid_corner_pos_3d, int cols,
-      int rows) {
-    Eigen::Vector4d init_intr;
-
-    bool val = CalibHelper::initializeIntrinsics(
-        corners, corner_ids, aprilgrid_corner_pos_3d, cols, rows, init_intr);
-
-    calib->intrinsics[cam_id].setFromInit(init_intr);
-
-    return val;
-  }
-
-  Vector2 getOpticalCenter(size_t i) {
-    return calib->intrinsics[i].getParam().template segment<2>(2);
-  }
+  Vector2 getOpticalCenter(size_t i) { return calib->intrinsics[i].getParam().template segment<2>(2); }
 
   void resetCalib(size_t num_cams, const std::vector<std::string> &cam_types) {
     BASALT_ASSERT(cam_types.size() == num_cams);
@@ -87,12 +68,11 @@ class PosesOptimization {
     calib.reset(new Calibration<Scalar>);
 
     for (size_t i = 0; i < cam_types.size(); i++) {
-      calib->intrinsics.emplace_back(
-          GenericCamera<Scalar>::fromString(cam_types[i]));
+      calib->intrinsics.emplace_back(GenericCamera<Scalar>::fromString(cam_types[i]));
 
       if (calib->intrinsics.back().getName() != cam_types[i]) {
-        std::cerr << "Unknown camera type " << cam_types[i] << " default to "
-                  << calib->intrinsics.back().getName() << std::endl;
+        std::cerr << "Unknown camera type " << cam_types[i] << " default to " << calib->intrinsics.back().getName()
+                  << std::endl;
       }
     }
     calib->T_i_c.resize(num_cams);
@@ -113,8 +93,7 @@ class PosesOptimization {
     }
   }
 
-  void saveCalib(const std::string &path,
-                 int64_t mocap_to_imu_offset_ns = 0) const {
+  void saveCalib(const std::string &path) const {
     if (calib) {
       std::ofstream os(path + "calibration.json");
       cereal::JSONOutputArchive archive(os);
@@ -126,40 +105,97 @@ class PosesOptimization {
   bool calibInitialized() const { return calib != nullptr; }
   bool initialized() const { return true; }
 
-  void optimize(bool opt_intrinsics, double huber_thresh, double &error,
-                int &num_points, double &reprojection_error) {
+  // Returns true when converged
+  bool optimize(bool opt_intrinsics, double huber_thresh, double stop_thresh, double &error, int &num_points,
+                double &reprojection_error) {
     error = 0;
     num_points = 0;
 
     ccd.opt_intrinsics = opt_intrinsics;
     ccd.huber_thresh = huber_thresh;
 
-    LinearizePosesOpt<double, SparseHashAccumulator<double>> lopt(
-        problem_size, timestam_to_pose, ccd);
+    LinearizePosesOpt<double, SparseHashAccumulator<double>> lopt(problem_size, timestam_to_pose, ccd);
 
-    tbb::blocked_range<AprilgridCornersDataIter> april_range(
-        aprilgrid_corners_measurements.begin(),
-        aprilgrid_corners_measurements.end());
+    tbb::blocked_range<AprilgridCornersDataIter> april_range(aprilgrid_corners_measurements.begin(),
+                                                             aprilgrid_corners_measurements.end());
     tbb::parallel_reduce(april_range, lopt);
 
     error = lopt.error;
     num_points = lopt.num_points;
     reprojection_error = lopt.reprojection_error;
 
-    Eigen::VectorXd inc = -lopt.accum.solve();
+    std::cout << "[LINEARIZE] Error: " << lopt.error << " num points " << lopt.num_points << std::endl;
 
-    for (auto &kv : timestam_to_pose) {
-      kv.second *= Sophus::expd(inc.segment<POSE_SIZE>(offset_poses[kv.first]));
+    lopt.accum.setup_solver();
+    Eigen::VectorXd Hdiag = lopt.accum.Hdiagonal();
+
+    bool converged = false;
+    bool step = false;
+    int max_iter = 10;
+
+    while (!step && max_iter > 0 && !converged) {
+      Eigen::aligned_unordered_map<int64_t, Sophus::SE3d> timestam_to_pose_backup = timestam_to_pose;
+      Calibration<Scalar> calib_backup = *calib;
+
+      Eigen::VectorXd Hdiag_lambda = Hdiag * lambda;
+      for (int i = 0; i < Hdiag_lambda.size(); i++) Hdiag_lambda[i] = std::max(Hdiag_lambda[i], min_lambda);
+
+      Eigen::VectorXd inc = -lopt.accum.solve(&Hdiag_lambda);
+      double max_inc = inc.array().abs().maxCoeff();
+      if (max_inc < stop_thresh) converged = true;
+
+      for (auto &kv : timestam_to_pose) {
+        kv.second *= Sophus::se3_expd(inc.segment<POSE_SIZE>(offset_poses[kv.first]));
+      }
+
+      for (size_t i = 0; i < calib->T_i_c.size(); i++) {
+        calib->T_i_c[i] *= Sophus::se3_expd(inc.segment<POSE_SIZE>(offset_T_i_c[i]));
+      }
+
+      for (size_t i = 0; i < calib->intrinsics.size(); i++) {
+        auto &c = calib->intrinsics[i];
+        c.applyInc(inc.segment(offset_cam_intrinsics[i], c.getN()));
+      }
+
+      ComputeErrorPosesOpt<double> eopt(problem_size, timestam_to_pose, ccd);
+      tbb::parallel_reduce(april_range, eopt);
+
+      double f_diff = (lopt.error - eopt.error);
+      double l_diff = 0.5 * inc.dot(inc * lambda - lopt.accum.getB());
+
+      // std::cout << "f_diff " << f_diff << " l_diff " << l_diff << std::endl;
+
+      double step_quality = f_diff / l_diff;
+
+      if (step_quality < 0) {
+        std::cout << "\t[REJECTED] lambda:" << lambda << " step_quality: " << step_quality << " max_inc: " << max_inc
+                  << " Error: " << eopt.error << " num points " << eopt.num_points << std::endl;
+        lambda = std::min(max_lambda, lambda_vee * lambda);
+        lambda_vee *= 2;
+
+        timestam_to_pose = timestam_to_pose_backup;
+        *calib = calib_backup;
+      } else {
+        std::cout << "\t[ACCEPTED] lambda:" << lambda << " step_quality: " << step_quality << " max_inc: " << max_inc
+                  << " Error: " << eopt.error << " num points " << eopt.num_points << std::endl;
+
+        lambda = std::max(min_lambda, lambda * std::max(1.0 / 3, 1 - std::pow(2 * step_quality - 1, 3.0)));
+        lambda_vee = 2;
+
+        error = eopt.error;
+        num_points = eopt.num_points;
+        reprojection_error = eopt.reprojection_error;
+
+        step = true;
+      }
+      max_iter--;
     }
 
-    for (size_t i = 0; i < calib->T_i_c.size(); i++) {
-      calib->T_i_c[i] *= Sophus::expd(inc.segment<POSE_SIZE>(offset_T_i_c[i]));
+    if (converged) {
+      std::cout << "[CONVERGED]" << std::endl;
     }
 
-    for (size_t i = 0; i < calib->intrinsics.size(); i++) {
-      auto &c = calib->intrinsics[i];
-      c.applyInc(inc.segment(offset_cam_intrinsics[i], c.getN()));
-    }
+    return converged;
   }
 
   void recompute_size() {
@@ -175,13 +211,11 @@ class PosesOptimization {
     }
 
     offset_T_i_c.emplace_back(curr_offset);
-    for (size_t i = 0; i < calib->T_i_c.size(); i++)
-      offset_T_i_c.emplace_back(offset_T_i_c.back() + POSE_SIZE);
+    for (size_t i = 0; i < calib->T_i_c.size(); i++) offset_T_i_c.emplace_back(offset_T_i_c.back() + POSE_SIZE);
 
     offset_cam_intrinsics.emplace_back(offset_T_i_c.back());
     for (size_t i = 0; i < calib->intrinsics.size(); i++)
-      offset_cam_intrinsics.emplace_back(offset_cam_intrinsics.back() +
-                                         calib->intrinsics[i].getN());
+      offset_cam_intrinsics.emplace_back(offset_cam_intrinsics.back() + calib->intrinsics[i].getN());
 
     problem_size = offset_cam_intrinsics.back();
   }
@@ -195,9 +229,7 @@ class PosesOptimization {
       return it->second;
   }
 
-  void setAprilgridCorners3d(const Eigen::vector<Eigen::Vector4d> &v) {
-    aprilgrid_corner_pos_3d = v;
-  }
+  void setAprilgridCorners3d(const Eigen::aligned_vector<Eigen::Vector4d> &v) { aprilgrid_corner_pos_3d = v; }
 
   void init() {
     recompute_size();
@@ -209,10 +241,8 @@ class PosesOptimization {
     ccd.offset_intrinsics = &offset_cam_intrinsics;
   }
 
-  void addAprilgridMeasurement(
-      int64_t t_ns, int cam_id,
-      const Eigen::vector<Eigen::Vector2d> &corners_pos,
-      const std::vector<int> &corner_id) {
+  void addAprilgridMeasurement(int64_t t_ns, int cam_id, const Eigen::aligned_vector<Eigen::Vector2d> &corners_pos,
+                               const std::vector<int> &corner_id) {
     aprilgrid_corners_measurements.emplace_back();
 
     aprilgrid_corners_measurements.back().timestamp_ns = t_ns;
@@ -221,25 +251,20 @@ class PosesOptimization {
     aprilgrid_corners_measurements.back().corner_id = corner_id;
   }
 
-  void addPoseMeasurement(int64_t t_ns, const Sophus::SE3d &pose) {
-    timestam_to_pose[t_ns] = pose;
-  }
+  void addPoseMeasurement(int64_t t_ns, const Sophus::SE3d &pose) { timestam_to_pose[t_ns] = pose; }
 
-  void setVignette(const std::vector<basalt::RdSpline<1, 4>> &vign) {
-    calib->vignette = vign;
-  }
+  void setVignette(const std::vector<basalt::RdSpline<1, 4>> &vign) { calib->vignette = vign; }
 
-  void setResolution(const Eigen::vector<Eigen::Vector2i> &resolution) {
-    calib->resolution = resolution;
-  }
+  void setResolution(const Eigen::aligned_vector<Eigen::Vector2i> &resolution) { calib->resolution = resolution; }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   std::shared_ptr<Calibration<Scalar>> calib;
 
  private:
-  typename LinearizePosesOpt<
-      Scalar, SparseHashAccumulator<Scalar>>::CalibCommonData ccd;
+  typename LinearizePosesOpt<Scalar, SparseHashAccumulator<Scalar>>::CalibCommonData ccd;
+
+  Scalar lambda, min_lambda, max_lambda, lambda_vee;
 
   size_t problem_size;
 
@@ -248,12 +273,11 @@ class PosesOptimization {
   std::vector<size_t> offset_T_i_c;
 
   // frame poses
-  Eigen::unordered_map<int64_t, Sophus::SE3d> timestam_to_pose;
+  Eigen::aligned_unordered_map<int64_t, Sophus::SE3d> timestam_to_pose;
 
-  Eigen::vector<AprilgridCornersData> aprilgrid_corners_measurements;
+  Eigen::aligned_vector<AprilgridCornersData> aprilgrid_corners_measurements;
 
-  Eigen::vector<Eigen::Vector4d> aprilgrid_corner_pos_3d;
-
-};  // namespace basalt
+  Eigen::aligned_vector<Eigen::Vector4d> aprilgrid_corner_pos_3d;
+};
 
 }  // namespace basalt

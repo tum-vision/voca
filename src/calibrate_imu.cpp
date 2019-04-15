@@ -37,16 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/calibration/cam_imu_calib.h>
 
-#include <tbb/tbb.h>
-
 #include <CLI/CLI.hpp>
 
 int main(int argc, char **argv) {
-  tbb::task_scheduler_init init(
-      tbb::task_scheduler_init::default_num_threads());
-
   std::string dataset_path;
   std::string dataset_type;
+  std::string aprilgrid_path;
   std::string result_path;
   std::string cache_dataset_name = "calib-cam-imu";
   int skip_images = 1;
@@ -59,22 +55,18 @@ int main(int argc, char **argv) {
   CLI::App app{"Calibrate IMU"};
 
   app.add_option("--dataset-path", dataset_path, "Path to dataset")->required();
-  app.add_option("--result-path", result_path, "Path to result folder")
-      ->required();
-  app.add_option("--dataset-type", dataset_type, "Dataset type (euroc, bag)")
-      ->required();
+  app.add_option("--result-path", result_path, "Path to result folder")->required();
+  app.add_option("--dataset-type", dataset_type, "Dataset type (euroc, bag)")->required();
+
+  app.add_option("--aprilgrid", aprilgrid_path, "Path to Aprilgrid config file)")->required();
 
   app.add_option("--gyro-noise-std", gyro_noise_std, "Gyroscope noise std");
-  app.add_option("--accel-noise-std", accel_noise_std,
-                 "Accelerometer noise std");
+  app.add_option("--accel-noise-std", accel_noise_std, "Accelerometer noise std");
 
-  app.add_option("--gyro-bias-std", accel_bias_std,
-                 "Gyroscope bias random walk std");
-  app.add_option("--accel-bias-std", gyro_bias_std,
-                 "Accelerometer bias random walk std");
+  app.add_option("--gyro-bias-std", gyro_bias_std, "Gyroscope bias random walk std");
+  app.add_option("--accel-bias-std", accel_bias_std, "Accelerometer bias random walk std");
 
-  app.add_option("--cache-name", cache_dataset_name,
-                 "Name to save cached files");
+  app.add_option("--cache-name", cache_dataset_name, "Name to save cached files");
 
   app.add_option("--skip-images", skip_images, "Number of images to skip");
 
@@ -84,9 +76,8 @@ int main(int argc, char **argv) {
     return app.exit(e);
   }
 
-  basalt::CamImuCalib cv(
-      dataset_path, dataset_type, result_path, cache_dataset_name, skip_images,
-      {accel_noise_std, gyro_noise_std, accel_bias_std, gyro_bias_std});
+  basalt::CamImuCalib cv(dataset_path, dataset_type, aprilgrid_path, result_path, cache_dataset_name, skip_images,
+                         {accel_noise_std, gyro_noise_std, accel_bias_std, gyro_bias_std});
 
   cv.renderingLoop();
 

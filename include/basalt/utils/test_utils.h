@@ -38,10 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Eigen/Dense>
 
 template <typename Derived1, typename Derived2, typename F>
-void test_jacobian_code(const std::string& name,
-                        const Eigen::MatrixBase<Derived1>& Ja, F func,
-                        const Eigen::MatrixBase<Derived2>& x0,
-                        double eps = 1e-8, double max_norm = 1e-4) {
+void test_jacobian_code(const std::string& name, const Eigen::MatrixBase<Derived1>& Ja, F func,
+                        const Eigen::MatrixBase<Derived2>& x0, double eps = 1e-8, double max_norm = 1e-4) {
   typedef typename Derived1::Scalar Scalar;
 
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> Jn = Ja;
@@ -62,8 +60,7 @@ void test_jacobian_code(const std::string& name,
 
   if (diff > max_norm || !Ja.allFinite()) {
     std::cerr << name << std::endl;
-    std::cerr << "Numeric Jacobian is different from analytic. Norm difference "
-              << diff << std::endl;
+    std::cerr << "Numeric Jacobian is different from analytic. Norm difference " << diff << std::endl;
     std::cerr << "Ja\n" << Ja << std::endl;
     std::cerr << "Jn\n" << Jn << std::endl;
   } else {

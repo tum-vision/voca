@@ -1,0 +1,227 @@
+<!--
+Copyright 2025, Mateo de Mayo
+SPDX-License-Identifier: BSD-3-Clause
+
+Author: Mateo de Mayo <mateo.demayo@tum.de>
+-->
+
+<style type="text/css">
+:root {
+  --md-primary: #03a9f4;
+  --md-primary-variant: #1976d2;
+
+  --md-surface: #ffffff;
+  --md-on-surface: #1f1f1f;
+  --md-border: #e0e0e0;
+  --md-muted: #5f6368;
+
+  --md-code-bg: #f5f5f5;
+  --md-code-fg: #1f1f1f;
+
+  --font-sans: Fira Code, monospace;
+  --font-mono: Fira Code, monospace;
+
+  --base-font-size: 16px;
+  --line-height: 1.6;
+
+  --h1-size: clamp(1.6rem, 2.5vw + 1rem, 2rem);
+  --h2-size: clamp(1.35rem, 2vw + 0.9rem, 1.6rem);
+  --h3-size: clamp(1.15rem, 1.5vw + 0.8rem, 1.3rem);
+  --h4-size: 1.05rem;
+  --h5-size: 1rem;
+
+  --content-max: 44rem;
+
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+
+  --img-width: 256px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: auto;
+  padding-right: var(--space-lg);
+  padding-left: var(--space-lg);
+  max-width: var(--content-max);
+  border-left: 1px solid var(--md-border);
+  border-right: 1px solid var(--md-border);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  font-family: var(--font-sans);
+  font-size: var(--base-font-size);
+  line-height: var(--line-height);
+}
+
+pre {
+  border: 1px solid var(--md-border);
+  background-color: var(--md-code-bg);
+  color: var(--md-code-fg);
+  padding: var(--space-sm);
+  overflow: auto;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+h1 a,
+h2 a,
+h3 a,
+h4 a,
+h5 a {
+  text-decoration: none;
+  color: var(--md-primary);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  border-bottom: 1px dotted var(--md-border);
+  color: var(--md-primary);
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+}
+
+h1 {
+  font-size: var(--h1-size);
+}
+h2 {
+  font-size: var(--h2-size);
+}
+h3 {
+  font-size: var(--h3-size);
+}
+h4 {
+  font-size: var(--h4-size);
+  font-style: italic;
+}
+h5 {
+  font-size: var(--h5-size);
+  font-style: italic;
+}
+
+h1.title {
+  font-size: clamp(2rem, 3vw + 1.2rem, 2.5rem);
+  font-weight: 800;
+  padding-top: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  text-align: left;
+  border: none;
+  color: var(--md-primary);
+}
+
+dt code {
+  font-weight: 700;
+}
+
+dd p {
+  margin-top: 0;
+}
+
+#footer {
+  padding-top: var(--space-lg);
+  font-size: 0.8rem;
+  color: var(--md-muted);
+  text-align: center;
+}
+
+/* Tables: allow horizontal scroll on overflow without changing HTML */
+table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-collapse: collapse;
+  margin-bottom: 3rem;
+}
+thead,
+tbody,
+tfoot,
+tr {
+  width: 100%;
+}
+th,
+td {
+  border: 1px solid var(--md-border);
+  padding: var(--space-sm) var(--space-md);
+  white-space: nowrap; /* prevents squishing; enables horizontal scroll */
+}
+
+/* Images: ensure line break before and fixed width */
+img {
+  display: block; /* forces a line break before/after */
+  width: var(--img-width);
+  height: auto;
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+img:hover { transform: scale(3); }
+img { transition: transform 200ms cubic-bezier(0, 0, 0, 1); }
+
+
+a {
+  color: var(--md-primary);
+}
+a:hover,
+a:focus {
+  color: var(--md-primary-variant);
+  text-decoration: underline;
+}
+
+p {
+  margin-top: 0;
+  margin-bottom: 0.8em;
+}
+
+ul,
+ol {
+  padding-left: 1.4em;
+  margin-top: 0.4em;
+  margin-bottom: 0.8em;
+}
+
+blockquote {
+  margin: 0.8em 0;
+  padding: var(--space-md) var(--space-lg);
+  border-left: 3px solid var(--md-primary);
+  background: #f8fffe;
+  color: var(--md-on-surface);
+}
+
+p code,
+li code,
+h1 code,
+h2 code,
+h3 code,
+h4 code,
+h5 code {
+  background: var(--md-code-bg);
+  color: var(--md-code-fg);
+  padding: 0 0.25em;
+  border-radius: 3px;
+}
+
+dl {
+  margin: 0.8em 0;
+}
+dt {
+  margin-top: 0.6em;
+  color: var(--md-muted);
+}
+dd {
+  margin-left: 1em;
+}
+</style>

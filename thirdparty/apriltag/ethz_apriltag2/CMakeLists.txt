@@ -18,7 +18,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake/)
 find_package(Eigen REQUIRED)
 find_package(OpenCV REQUIRED)
 
-add_definitions(-fPIC -O3)
+if (NOT WIN32)
+    add_definitions(-fPIC)
+endif()
+add_definitions(-O3)
 include_directories(include  ${Eigen_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS})
 
 #library

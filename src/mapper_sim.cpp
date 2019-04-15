@@ -33,7 +33,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -42,7 +41,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sophus/se3.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
-#include <tbb/tbb.h>
 
 #include <pangolin/display/image_view.h>
 #include <pangolin/gl/gldraw.h>
@@ -57,19 +55,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/io/marg_data_io.h>
 #include <basalt/optimization/accumulator.h>
 #include <basalt/spline/se3_spline.h>
+#include <basalt/utils/filesystem.h>
 #include <basalt/utils/imu_types.h>
 #include <basalt/utils/nfr.h>
 #include <basalt/utils/sim_utils.h>
 #include <basalt/utils/vis_utils.h>
-#include <basalt/vi_estimator/keypoint_vio.h>
+#include <basalt/vi_estimator/marg_helper.h>
 #include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/calibration/calibration.hpp>
 
-#include <experimental/filesystem>
-
 #include <basalt/serialization/headers_serialization.h>
-
-namespace fs = std::experimental::filesystem;
 
 using basalt::POSE_SIZE;
 using basalt::POSE_VEL_BIAS_SIZE;
@@ -78,28 +73,27 @@ Eigen::Vector3d g(0, 0, -9.81);
 
 std::shared_ptr<basalt::Se3Spline<5>> gt_spline;
 
-Eigen::vector<Sophus::SE3d> gt_frame_T_w_i;
-Eigen::vector<Eigen::Vector3d> gt_frame_t_w_i, vio_t_w_i;
+Eigen::aligned_vector<Sophus::SE3d> gt_frame_T_w_i;
+Eigen::aligned_vector<Eigen::Vector3d> gt_frame_t_w_i, vio_t_w_i;
 std::vector<int64_t> gt_frame_t_ns;
 
-Eigen::vector<Eigen::Vector3d> gt_accel, gt_gyro, gt_accel_bias, gt_gyro_bias,
-    noisy_accel, noisy_gyro, gt_vel;
+Eigen::aligned_vector<Eigen::Vector3d> gt_accel, gt_gyro, gt_accel_bias, gt_gyro_bias, noisy_accel, noisy_gyro, gt_vel;
 
 std::vector<int64_t> gt_imu_t_ns;
 
-Eigen::vector<Eigen::Vector3d> filter_points;
+Eigen::aligned_vector<Eigen::Vector3d> filter_points;
 std::vector<int> filter_point_ids;
 
 std::map<int64_t, basalt::MargData::Ptr> marg_data;
 
-Eigen::vector<basalt::RollPitchFactor> roll_pitch_factors;
-Eigen::vector<basalt::RelPoseFactor> rel_pose_factors;
+Eigen::aligned_vector<basalt::RollPitchFactor> roll_pitch_factors;
+Eigen::aligned_vector<basalt::RelPoseFactor> rel_pose_factors;
 
-Eigen::vector<Eigen::Vector3d> edges_vis;
-Eigen::vector<Eigen::Vector3d> roll_pitch_vis;
-Eigen::vector<Eigen::Vector3d> rel_edges_vis;
+Eigen::aligned_vector<Eigen::Vector3d> edges_vis;
+Eigen::aligned_vector<Eigen::Vector3d> roll_pitch_vis;
+Eigen::aligned_vector<Eigen::Vector3d> rel_edges_vis;
 
-Eigen::vector<Eigen::Vector3d> mapper_points;
+Eigen::aligned_vector<Eigen::Vector3d> mapper_points;
 std::vector<int> mapper_point_ids;
 
 basalt::NfrMapper::Ptr nrf_mapper;
@@ -108,8 +102,7 @@ std::map<basalt::TimeCamId, basalt::SimObservations> gt_observations;
 std::map<basalt::TimeCamId, basalt::SimObservations> noisy_observations;
 
 void draw_scene();
-void load_data(const std::string& calib_path,
-               const std::string& marg_data_path);
+void load_data(const std::string& calib_path, const std::string& marg_data_path);
 void processMargData(basalt::MargData& m);
 void extractNonlinearFactors(basalt::MargData& m);
 void computeEdgeVis();
@@ -120,36 +113,36 @@ double alignButton();
 void setup_points();
 
 constexpr int UI_WIDTH = 200;
-constexpr int NUM_FRAMES = 500;
+// constexpr int NUM_FRAMES = 500;
 
 basalt::Calibration<double> calib;
 
-pangolin::Var<bool> show_edges("ui.show_edges", true, false, true);
-pangolin::Var<bool> show_points("ui.show_points", true, false, true);
+pangolin::Var<bool> show_edges{"ui.show_edges", true, true};
+pangolin::Var<bool> show_points{"ui.show_points", true, true};
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
-Button optimize_btn("ui.optimize", &optimize);
-Button rand_inc_btn("ui.rand_inc", &randomInc);
-Button rand_yaw_inc_btn("ui.rand_yaw", &randomYawInc);
-Button setup_points_btn("ui.setup_points", &setup_points);
-Button align_svd_btn("ui.align_svd", &alignButton);
+Button optimize_btn{"ui.optimize", &optimize};
+Button rand_inc_btn{"ui.rand_inc", &randomInc};
+Button rand_yaw_inc_btn{"ui.rand_yaw", &randomYawInc};
+Button setup_points_btn{"ui.setup_points", &setup_points};
+Button align_se3_btn{"ui.align_se3", &alignButton};
 
 std::string marg_data_path;
 
 int main(int argc, char** argv) {
   bool show_gui = true;
   std::string cam_calib_path;
+  std::string result_path;
 
   CLI::App app{"App description"};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
-  app.add_option("--cam-calib", cam_calib_path,
-                 "Ground-truth camera calibration used for simulation.")
-      ->required();
+  app.add_option("--cam-calib", cam_calib_path, "Ground-truth camera calibration used for simulation.")->required();
 
-  app.add_option("--marg-data", marg_data_path, "Path to cache folder.")
-      ->required();
+  app.add_option("--marg-data", marg_data_path, "Path to cache folder.")->required();
+
+  app.add_option("--result-path", result_path, "Path to result file where the system will write RMSE ATE.");
 
   try {
     app.parse(argc, argv);
@@ -169,29 +162,23 @@ int main(int argc, char** argv) {
 
   computeEdgeVis();
 
-  std::cout << "roll_pitch_factors.size() " << roll_pitch_factors.size()
-            << std::endl;
-  std::cout << "rel_pose_factors.size() " << rel_pose_factors.size()
-            << std::endl;
+  std::cout << "roll_pitch_factors.size() " << roll_pitch_factors.size() << std::endl;
+  std::cout << "rel_pose_factors.size() " << rel_pose_factors.size() << std::endl;
 
   if (show_gui) {
-    pangolin::CreateWindowAndBind("Main", 1800, 1000);
+    pangolin::CreateWindowAndBind("Main", 1800, 1000, basalt::vis::default_win_params);
 
     glEnable(GL_DEPTH_TEST);
 
-    pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0,
-                                          pangolin::Attach::Pix(UI_WIDTH));
+    pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, pangolin::Attach::Pix(UI_WIDTH));
 
-    pangolin::OpenGlRenderState camera(
-        pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
-        pangolin::ModelViewLookAt(-8.4, -8.7, -8.3, 2.1, 0.6, 0.2,
-                                  pangolin::AxisNegY));
+    pangolin::OpenGlRenderState camera(pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
+                                       pangolin::ModelViewLookAt(-8.4, -8.7, -8.3, 2.1, 0.6, 0.2, pangolin::AxisNegY));
 
-    pangolin::View& display3D =
-        pangolin::CreateDisplay()
-            .SetAspect(-640 / 480.0)
-            .SetBounds(0.0, 1.0, pangolin::Attach::Pix(UI_WIDTH), 1.0)
-            .SetHandler(new pangolin::Handler3D(camera));
+    pangolin::View& display3D = pangolin::CreateDisplay()
+                                    .SetAspect(-640 / 480.0)
+                                    .SetBounds(0.0, 1.0, pangolin::Attach::Pix(UI_WIDTH), 1.0)
+                                    .SetHandler(new pangolin::Handler3D(camera));
 
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -204,6 +191,17 @@ int main(int argc, char** argv) {
       pangolin::FinishFrame();
 
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+  } else {
+    setup_points();
+    optimize();
+
+    if (!result_path.empty()) {
+      double error = alignButton();
+
+      std::ofstream os(result_path);
+      os << error << std::endl;
+      os.close();
     }
   }
 
@@ -248,12 +246,10 @@ void load_data(const std::string& calib_path, const std::string& cache_path) {
     if (os.is_open()) {
       cereal::JSONInputArchive archive(os);
       archive(calib);
-      std::cout << "Loaded camera with " << calib.intrinsics.size()
-                << " cameras" << std::endl;
+      std::cout << "Loaded camera with " << calib.intrinsics.size() << " cameras" << std::endl;
 
     } else {
-      std::cerr << "could not load camera calibration " << calib_path
-                << std::endl;
+      std::cerr << "could not load camera calibration " << calib_path << std::endl;
       std::abort();
     }
   }
@@ -268,7 +264,7 @@ void load_data(const std::string& calib_path, const std::string& cache_path) {
       cereal::JSONInputArchive archive(is);
 
       int64_t t_ns;
-      Eigen::vector<Sophus::SE3d> knots;
+      Eigen::aligned_vector<Sophus::SE3d> knots;
 
       archive(cereal::make_nvp("t_ns", t_ns));
       archive(cereal::make_nvp("knots", knots));
@@ -283,7 +279,7 @@ void load_data(const std::string& calib_path, const std::string& cache_path) {
       gt_spline.reset(new basalt::Se3Spline<5>(t_ns));
 
       for (size_t i = 0; i < knots.size(); i++) {
-        gt_spline->knots_push_back(knots[i]);
+        gt_spline->knotsPushBack(knots[i]);
       }
 
       is.close();
@@ -326,8 +322,7 @@ void load_data(const std::string& calib_path, const std::string& cache_path) {
 void processMargData(basalt::MargData& m) {
   BASALT_ASSERT(m.aom.total_size == size_t(m.abs_H.cols()));
 
-  std::cout << "rank " << m.abs_H.fullPivLu().rank() << " size "
-            << m.abs_H.cols() << std::endl;
+  std::cout << "rank " << m.abs_H.fullPivLu().rank() << " size " << m.abs_H.cols() << std::endl;
 
   basalt::AbsOrderMap aom_new;
   std::set<int> idx_to_keep;
@@ -335,27 +330,22 @@ void processMargData(basalt::MargData& m) {
 
   for (const auto& kv : m.aom.abs_order_map) {
     if (kv.second.second == POSE_SIZE) {
-      for (size_t i = 0; i < POSE_SIZE; i++)
-        idx_to_keep.emplace(kv.second.first + i);
+      for (size_t i = 0; i < POSE_SIZE; i++) idx_to_keep.emplace(kv.second.first + i);
       aom_new.abs_order_map.emplace(kv);
       aom_new.total_size += POSE_SIZE;
     } else if (kv.second.second == POSE_VEL_BIAS_SIZE) {
       if (m.kfs_all.count(kv.first) > 0) {
-        for (size_t i = 0; i < POSE_SIZE; i++)
-          idx_to_keep.emplace(kv.second.first + i);
-        for (size_t i = POSE_SIZE; i < POSE_VEL_BIAS_SIZE; i++)
-          idx_to_marg.emplace(kv.second.first + i);
+        for (size_t i = 0; i < POSE_SIZE; i++) idx_to_keep.emplace(kv.second.first + i);
+        for (size_t i = POSE_SIZE; i < POSE_VEL_BIAS_SIZE; i++) idx_to_marg.emplace(kv.second.first + i);
 
-        aom_new.abs_order_map[kv.first] =
-            std::make_pair(aom_new.total_size, POSE_SIZE);
+        aom_new.abs_order_map[kv.first] = std::make_pair(aom_new.total_size, POSE_SIZE);
         aom_new.total_size += POSE_SIZE;
 
-        basalt::PoseStateWithLin p = m.frame_states.at(kv.first);
+        basalt::PoseStateWithLin<double> p(m.frame_states.at(kv.first));
         m.frame_poses[kv.first] = p;
         m.frame_states.erase(kv.first);
       } else {
-        for (size_t i = 0; i < POSE_VEL_BIAS_SIZE; i++)
-          idx_to_marg.emplace(kv.second.first + i);
+        for (size_t i = 0; i < POSE_VEL_BIAS_SIZE; i++) idx_to_marg.emplace(kv.second.first + i);
         m.frame_states.erase(kv.first);
       }
     } else {
@@ -363,17 +353,15 @@ void processMargData(basalt::MargData& m) {
       std::abort();
     }
 
-    std::cout << kv.first << " " << kv.second.first << " " << kv.second.second
-              << std::endl;
+    std::cout << kv.first << " " << kv.second.first << " " << kv.second.second << std::endl;
   }
 
   Eigen::MatrixXd marg_H_new;
   Eigen::VectorXd marg_b_new;
-  basalt::KeypointVioEstimator::marginalizeHelper(
-      m.abs_H, m.abs_b, idx_to_keep, idx_to_marg, marg_H_new, marg_b_new);
+  basalt::MargHelper<double>::marginalizeHelperSqToSq(m.abs_H, m.abs_b, idx_to_keep, idx_to_marg, marg_H_new,
+                                                      marg_b_new);
 
-  std::cout << "new rank " << marg_H_new.fullPivLu().rank() << " size "
-            << marg_H_new.cols() << std::endl;
+  std::cout << "new rank " << marg_H_new.fullPivLu().rank() << " size " << marg_H_new.cols() << std::endl;
 
   m.abs_H = marg_H_new;
   m.abs_b = marg_b_new;
@@ -398,8 +386,7 @@ void extractNonlinearFactors(basalt::MargData& m) {
   Sophus::SE3d T_w_i_kf = state_kf.getPose();
 
   Eigen::Vector3d pos = T_w_i_kf.translation();
-  Eigen::Vector3d yaw_dir_body =
-      T_w_i_kf.so3().inverse() * Eigen::Vector3d::UnitX();
+  Eigen::Vector3d yaw_dir_body = T_w_i_kf.so3().inverse() * Eigen::Vector3d::UnitX();
 
   Sophus::Matrix<double, 3, POSE_SIZE> d_pos_d_T_w_i;
   Sophus::Matrix<double, 1, POSE_SIZE> d_yaw_d_T_w_i;
@@ -441,8 +428,7 @@ void extractNonlinearFactors(basalt::MargData& m) {
     int o_start_idx = m.aom.abs_order_map.at(other_id).first;
 
     Sophus::Matrix6d d_res_d_T_w_i, d_res_d_T_w_j;
-    basalt::relPoseError(T_kf_o, T_w_i_kf, T_w_i_o, &d_res_d_T_w_i,
-                         &d_res_d_T_w_j);
+    basalt::relPoseError(T_kf_o, T_w_i_kf, T_w_i_o, &d_res_d_T_w_i, &d_res_d_T_w_j);
 
     Eigen::MatrixXd J;
     J.setZero(POSE_SIZE, asize);
@@ -465,16 +451,10 @@ void extractNonlinearFactors(basalt::MargData& m) {
 
 void computeEdgeVis() {
   edges_vis.clear();
-  for (const auto& kv1 : nrf_mapper->obs) {
+  for (const auto& kv1 : nrf_mapper->lmdb.getObservations()) {
     for (const auto& kv2 : kv1.second) {
-      Eigen::Vector3d p1 = nrf_mapper->getFramePoses()
-                               .at(kv1.first.first)
-                               .getPose()
-                               .translation();
-      Eigen::Vector3d p2 = nrf_mapper->getFramePoses()
-                               .at(kv2.first.first)
-                               .getPose()
-                               .translation();
+      Eigen::Vector3d p1 = nrf_mapper->getFramePoses().at(kv1.first.frame_id).getPose().translation();
+      Eigen::Vector3d p2 = nrf_mapper->getFramePoses().at(kv2.first.frame_id).getPose().translation();
 
       edges_vis.emplace_back(p1);
       edges_vis.emplace_back(p2);
@@ -483,12 +463,10 @@ void computeEdgeVis() {
 
   roll_pitch_vis.clear();
   for (const auto& v : nrf_mapper->roll_pitch_factors) {
-    const Sophus::SE3d& T_w_i =
-        nrf_mapper->getFramePoses().at(v.t_ns).getPose();
+    const Sophus::SE3d& T_w_i = nrf_mapper->getFramePoses().at(v.t_ns).getPose();
 
     Eigen::Vector3d p = T_w_i.translation();
-    Eigen::Vector3d d =
-        v.R_w_i_meas * T_w_i.so3().inverse() * (-Eigen::Vector3d::UnitZ());
+    Eigen::Vector3d d = v.R_w_i_meas * T_w_i.so3().inverse() * (-Eigen::Vector3d::UnitZ());
 
     roll_pitch_vis.emplace_back(p);
     roll_pitch_vis.emplace_back(p + 0.1 * d);
@@ -496,10 +474,8 @@ void computeEdgeVis() {
 
   rel_edges_vis.clear();
   for (const auto& v : nrf_mapper->rel_pose_factors) {
-    Eigen::Vector3d p1 =
-        nrf_mapper->getFramePoses().at(v.t_i_ns).getPose().translation();
-    Eigen::Vector3d p2 =
-        nrf_mapper->getFramePoses().at(v.t_j_ns).getPose().translation();
+    Eigen::Vector3d p1 = nrf_mapper->getFramePoses().at(v.t_i_ns).getPose().translation();
+    Eigen::Vector3d p2 = nrf_mapper->getFramePoses().at(v.t_j_ns).getPose().translation();
 
     rel_edges_vis.emplace_back(p1);
     rel_edges_vis.emplace_back(p2);
@@ -518,11 +494,11 @@ void optimize() {
 
 void randomInc() {
   Sophus::Vector6d rnd = Sophus::Vector6d::Random().array().abs();
-  Sophus::SE3d random_inc = Sophus::expd(rnd / 10);
+  Sophus::SE3d random_inc = Sophus::se3_expd(rnd / 10);
 
   for (auto& kv : nrf_mapper->getFramePoses()) {
     Sophus::SE3d pose = random_inc * kv.second.getPose();
-    basalt::PoseStateWithLin p(kv.first, pose);
+    basalt::PoseStateWithLin<double> p(kv.first, pose);
     kv.second = p;
   }
 
@@ -534,13 +510,13 @@ void randomYawInc() {
   rnd.setZero();
   rnd[5] = std::abs(Eigen::Vector2d::Random()[0]);
 
-  Sophus::SE3d random_inc = Sophus::expd(rnd);
+  Sophus::SE3d random_inc = Sophus::se3_expd(rnd);
 
   std::cout << "random_inc\n" << random_inc.matrix() << std::endl;
 
   for (auto& kv : nrf_mapper->getFramePoses()) {
     Sophus::SE3d pose = random_inc * kv.second.getPose();
-    basalt::PoseStateWithLin p(kv.first, pose);
+    basalt::PoseStateWithLin<double> p(kv.first, pose);
     kv.second = p;
   }
 
@@ -548,7 +524,7 @@ void randomYawInc() {
 }
 
 double alignButton() {
-  Eigen::vector<Eigen::Vector3d> filter_t_w_i;
+  Eigen::aligned_vector<Eigen::Vector3d> filter_t_w_i;
   std::vector<int64_t> filter_t_ns;
 
   for (const auto& kv : nrf_mapper->getFramePoses()) {
@@ -556,8 +532,7 @@ double alignButton() {
     filter_t_w_i.emplace_back(kv.second.getPose().translation());
   }
 
-  return basalt::alignSVD(filter_t_ns, filter_t_w_i, gt_frame_t_ns,
-                          gt_frame_t_w_i);
+  return basalt::alignSVD(filter_t_ns, filter_t_w_i, gt_frame_t_ns, gt_frame_t_w_i);
 }
 
 void setup_points() {
@@ -577,8 +552,7 @@ void setup_points() {
     }
   }
 
-  for (auto it = nrf_mapper->feature_tracks.cbegin();
-       it != nrf_mapper->feature_tracks.cend();) {
+  for (auto it = nrf_mapper->feature_tracks.cbegin(); it != nrf_mapper->feature_tracks.cend();) {
     if (it->second.size() < 5) {
       it = nrf_mapper->feature_tracks.erase(it);
     } else {
@@ -586,8 +560,7 @@ void setup_points() {
     }
   }
 
-  std::cerr << "nrf_mapper->feature_tracks.size() "
-            << nrf_mapper->feature_tracks.size() << std::endl;
+  std::cerr << "nrf_mapper->feature_tracks.size() " << nrf_mapper->feature_tracks.size() << std::endl;
 
   nrf_mapper->setup_opt();
 

@@ -47,10 +47,7 @@
 #include <basalt/utils/common_types.h>
 #include <basalt/utils/union_find.h>
 
-
 namespace basalt {
-
-
 
 /// TrackBuild class creates feature tracks from matches
 struct TrackBuilder {
@@ -151,8 +148,7 @@ struct TrackBuilder {
   /// Return the number of connected set in the UnionFind structure (tree
   /// forest)
   size_t TrackCount() const {
-    std::set<TrackId> parent_id(uf_tree.m_cc_parent.begin(),
-                                uf_tree.m_cc_parent.end());
+    std::set<TrackId> parent_id(uf_tree.m_cc_parent.begin(), uf_tree.m_cc_parent.end());
     // Erase the "special marker" that depicted rejected tracks
     parent_id.erase(UnionFind::InvalidIndex());
     return parent_id.size();
@@ -175,8 +171,7 @@ struct TrackBuilder {
 };
 
 /// Find common tracks between images.
-bool GetTracksInImages(const std::set<TimeCamId>& image_ids,
-                       const FeatureTracks& all_tracks,
+bool GetTracksInImages(const std::set<TimeCamId>& image_ids, const FeatureTracks& all_tracks,
                        std::vector<TrackId>& shared_track_ids) {
   shared_track_ids.clear();
 
@@ -200,17 +195,14 @@ bool GetTracksInImages(const std::set<TimeCamId>& image_ids,
 }
 
 /// Find all tracks in an image.
-bool GetTracksInImage(const TimeCamId& image_id,
-                      const FeatureTracks& all_tracks,
-                      std::vector<TrackId>& track_ids) {
+bool GetTracksInImage(const TimeCamId& image_id, const FeatureTracks& all_tracks, std::vector<TrackId>& track_ids) {
   std::set<TimeCamId> image_set;
   image_set.insert(image_id);
   return GetTracksInImages(image_set, all_tracks, track_ids);
 }
 
 /// Find shared tracks between map and image
-bool GetSharedTracks(const TimeCamId& image_id, const FeatureTracks& all_tracks,
-                     const Landmarks& landmarks,
+bool GetSharedTracks(const TimeCamId& image_id, const FeatureTracks& all_tracks, const Landmarks& landmarks,
                      std::vector<TrackId>& track_ids) {
   track_ids.clear();
   for (const auto& kv : landmarks) {
@@ -222,4 +214,4 @@ bool GetSharedTracks(const TimeCamId& image_id, const FeatureTracks& all_tracks,
   return !track_ids.empty();
 }
 
-}
+}  // namespace basalt

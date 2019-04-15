@@ -3,7 +3,8 @@
 #ifndef MATHUTIL_H
 #define MATHUTIL_H
 
-#include <cmath>
+#define _USE_MATH_DEFINES
+#include <math.h>
 #include <cfloat>
 #include <cstdlib>
 #include <ostream>

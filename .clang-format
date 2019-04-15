@@ -1,6 +1,16 @@
 ---
-Language:        Cpp
-BasedOnStyle:  Google
-IndentWidth:     2
+Language:       Cpp
+BasedOnStyle:   Google
+IndentWidth:    2
+IncludeBlocks:  Preserve
+ColumnLimit:    120
+# TODO: Add these in a different commit and run clang-format on everything
+# AllowShortBlocksOnASingleLine: Always
+# AllowShortCaseLabelsOnASingleLine: true
+# AllowShortCompoundRequirementOnASingleLine: true
+# AllowShortEnumsOnASingleLine: true
+# AllowShortFunctionsOnASingleLine: All
+# AllowShortLambdasOnASingleLine: All
+# AllowShortLoopsOnASingleLine: true
+# AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 ...
-

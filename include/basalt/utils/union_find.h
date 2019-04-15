@@ -35,9 +35,7 @@ struct UnionFind {
   using ValueType = uint32_t;
 
   // Special Value for invalid parent index
-  static ValueType InvalidIndex() {
-    return std::numeric_limits<ValueType>::max();
-  }
+  static ValueType InvalidIndex() { return std::numeric_limits<ValueType>::max(); }
 
   // Represent the DS/UF forest thanks to two array:
   // A parent 'pointer tree' where each node holds a reference to its parent
@@ -65,8 +63,7 @@ struct UnionFind {
   // Return the representative set id of I nth component
   ValueType Find(ValueType i) {
     // Recursively set all branch as children of root (Path compression)
-    if (m_cc_parent[i] != i && m_cc_parent[i] != InvalidIndex())
-      m_cc_parent[i] = Find(m_cc_parent[i]);
+    if (m_cc_parent[i] != i && m_cc_parent[i] != InvalidIndex()) m_cc_parent[i] = Find(m_cc_parent[i]);
     return m_cc_parent[i];
   }
 

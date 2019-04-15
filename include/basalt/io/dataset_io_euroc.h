@@ -35,7 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef DATASET_IO_EUROC_H
 #define DATASET_IO_EUROC_H
 
+#include <memory>
+
 #include <basalt/io/dataset_io.h>
+#include <basalt/utils/filesystem.h>
+
+#include <opencv2/highgui/highgui.hpp>
 
 namespace basalt {
 
@@ -52,62 +57,75 @@ class EurocVioDataset : public VioDataset {
   // missing frames
   // std::unordered_map<int64_t, std::vector<ImageData>> image_data;
 
-  Eigen::vector<AccelData> accel_data;
-  Eigen::vector<GyroData> gyro_data;
+  Eigen::aligned_vector<AccelData> accel_data;
+  Eigen::aligned_vector<GyroData> gyro_data;
 
-  std::vector<int64_t> gt_timestamps;        // ordered gt timestamps
-  Eigen::vector<Sophus::SE3d> gt_pose_data;  // TODO: change to eigen aligned
+  std::vector<int64_t> gt_timestamps;                // ordered gt timestamps
+  Eigen::aligned_vector<Sophus::SE3d> gt_pose_data;  // TODO: change to eigen aligned
 
-  int64_t mocap_to_imu_offset_ns;
+  int64_t mocap_to_imu_offset_ns = 0;
+
+  std::vector<std::unordered_map<int64_t, double>> exposure_times;
 
  public:
-  ~EurocVioDataset(){};
+  ~EurocVioDataset() override = default;
 
-  size_t get_num_cams() const { return num_cams; }
+  size_t get_num_cams() const override { return num_cams; }
 
-  std::vector<int64_t> &get_image_timestamps() { return image_timestamps; }
+  std::vector<int64_t> &get_image_timestamps() override { return image_timestamps; }
 
-  const Eigen::vector<AccelData> &get_accel_data() const { return accel_data; }
-  const Eigen::vector<GyroData> &get_gyro_data() const { return gyro_data; }
-  const std::vector<int64_t> &get_gt_timestamps() const {
-    return gt_timestamps;
-  }
-  const Eigen::vector<Sophus::SE3d> &get_gt_pose_data() const {
-    return gt_pose_data;
-  }
-  int64_t get_mocap_to_imu_offset_ns() const { return mocap_to_imu_offset_ns; }
+  const Eigen::aligned_vector<AccelData> &get_accel_data() const override { return accel_data; }
+  const Eigen::aligned_vector<GyroData> &get_gyro_data() const override { return gyro_data; }
+  const std::vector<int64_t> &get_gt_timestamps() const override { return gt_timestamps; }
+  const Eigen::aligned_vector<Sophus::SE3d> &get_gt_pose_data() const override { return gt_pose_data; }
 
-  std::vector<ImageData> get_image_data(int64_t t_ns) {
+  int64_t get_mocap_to_imu_offset_ns() const override { return mocap_to_imu_offset_ns; }
+
+  std::vector<ImageData> get_image_data(int64_t t_ns) override {
     std::vector<ImageData> res(num_cams);
 
-    const std::vector<std::string> folder = {"/mav0/cam0/", "/mav0/cam1/"};
-
     for (size_t i = 0; i < num_cams; i++) {
-      std::string full_image_path =
-          path + folder[i] + "data/" + image_path[t_ns];
+      std::string full_image_path = path + "/mav0/cam" + std::to_string(i) + "/data/" + image_path[t_ns];
+      if (!fs::exists(full_image_path)) return {};
 
-      if (file_exists(full_image_path)) {
-        pangolin::TypedImage img = pangolin::LoadImage(full_image_path);
+      cv::Mat img = cv::imread(full_image_path, cv::IMREAD_UNCHANGED);
 
-        if (img.fmt.bpp == 8) {
-          res[i].img.reset(new ManagedImage<uint16_t>(img.w, img.h));
+      if (img.type() == CV_8UC1) {
+        res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
 
-          const uint8_t *data_in = img.ptr;
-          uint16_t *data_out = res[i].img->ptr;
+        const uint8_t *data_in = img.ptr();
+        uint16_t *data_out = res[i].img->ptr;
 
-          for (size_t i = 0; i < img.size(); i++) {
-            int val = data_in[i];
-            val = val << 8;
-            data_out[i] = val;
-          }
-        } else if (img.fmt.bpp == 16) {
-          res[i].img.reset(new ManagedImage<uint16_t>(img.w, img.h));
-          std::memcpy(res[i].img->ptr, img.ptr, img.size() * sizeof(uint16_t));
-
-        } else {
-          std::cerr << "img.fmt.bpp " << img.fmt.bpp << std::endl;
-          std::abort();
+        size_t full_size = long(img.cols) * img.rows;
+        for (size_t i = 0; i < full_size; i++) {
+          unsigned val = data_in[i];
+          val = val << 8;
+          data_out[i] = val;
         }
+      } else if (img.type() == CV_8UC3) {
+        res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
+
+        const uint8_t *data_in = img.ptr();
+        uint16_t *data_out = res[i].img->ptr;
+
+        size_t full_size = long(img.cols) * img.rows;
+        for (size_t i = 0; i < full_size; i++) {
+          unsigned val = data_in[i * 3];
+          val = val << 8;
+          data_out[i] = val;
+        }
+      } else if (img.type() == CV_16UC1) {
+        res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
+        std::memcpy(res[i].img->ptr, img.ptr(), long(img.cols) * img.rows * sizeof(uint16_t));
+
+      } else {
+        std::cerr << "img.fmt.bpp " << img.type() << std::endl;
+        std::abort();
+      }
+
+      auto exp_it = exposure_times[i].find(t_ns);
+      if (exp_it != exposure_times[i].end()) {
+        res[i].exposure = exp_it->second;
       }
     }
 
@@ -121,30 +139,71 @@ class EurocVioDataset : public VioDataset {
 
 class EurocIO : public DatasetIoInterface {
  public:
-  EurocIO() {}
+  EurocIO(bool load_mocap_as_gt) : load_mocap_as_gt(load_mocap_as_gt) {}
 
-  void read(const std::string &path) {
-    data.reset(new EurocVioDataset);
+  void read(const std::string &path) override {
+    if (!fs::exists(path)) std::cerr << "No dataset found in " << path << std::endl;
 
-    data->num_cams = 2;
+    data = std::make_shared<EurocVioDataset>();
+
+    // Detect camera count
+    int i = 0;
+    while (fs::exists(path + "/mav0/cam" + std::to_string(i))) {
+      i++;
+    }
+
+    data->num_cams = i;
     data->path = path;
 
     read_image_timestamps(path + "/mav0/cam0/");
 
     read_imu_data(path + "/mav0/imu0/");
 
-    if (file_exists(path + "/mav0/state_groundtruth_estimate0/data.csv")) {
+    if (!load_mocap_as_gt && fs::exists(path + "/mav0/state_groundtruth_estimate0/data.csv")) {
       read_gt_data_state(path + "/mav0/state_groundtruth_estimate0/");
-    } else if (file_exists(path + "/mav0/mocap0/data.csv")) {
+    } else if (!load_mocap_as_gt && fs::exists(path + "/mav0/gt/data.csv")) {
+      read_gt_data_pose(path + "/mav0/gt/");
+    } else if (fs::exists(path + "/mav0/mocap0/data.csv")) {
       read_gt_data_pose(path + "/mav0/mocap0/");
+    }
+
+    data->exposure_times.resize(data->num_cams);
+    for (size_t i = 0; i < data->num_cams; i++) {
+      std::string istr = std::to_string(i);
+      std::string cam_dir = path;
+      cam_dir.append("/mav0/cam").append(istr).append("/");
+      if (fs::exists(cam_dir + "exposure.csv")) {
+        std::cout << "Loading exposure times for cam" << istr << std::endl;
+        read_exposure(cam_dir, data->exposure_times[i]);
+      }
     }
   }
 
-  void reset() { data.reset(); }
+  void reset() override { data.reset(); }
 
-  VioDatasetPtr get_data() { return data; }
+  VioDatasetPtr get_data() override { return data; }
 
  private:
+  void read_exposure(const std::string &path, std::unordered_map<int64_t, double> &exposure_data) {
+    exposure_data.clear();
+
+    std::ifstream f(path + "exposure.csv");
+    std::string line;
+    while (std::getline(f, line)) {
+      if (line[0] == '#') continue;
+
+      std::stringstream ss(line);
+
+      char tmp;
+      int64_t timestamp, exposure_int;
+      Eigen::Vector3d gyro, accel;
+
+      ss >> timestamp >> tmp >> exposure_int;
+
+      exposure_data[timestamp] = exposure_int * 1e-9;
+    }
+  }
+
   void read_image_timestamps(const std::string &path) {
     std::ifstream f(path + "data.csv");
     std::string line;
@@ -176,8 +235,8 @@ class EurocIO : public DatasetIoInterface {
       uint64_t timestamp;
       Eigen::Vector3d gyro, accel;
 
-      ss >> timestamp >> tmp >> gyro[0] >> tmp >> gyro[1] >> tmp >> gyro[2] >>
-          tmp >> accel[0] >> tmp >> accel[1] >> tmp >> accel[2];
+      ss >> timestamp >> tmp >> gyro[0] >> tmp >> gyro[1] >> tmp >> gyro[2] >> tmp >> accel[0] >> tmp >> accel[1] >>
+          tmp >> accel[2];
 
       data->accel_data.emplace_back();
       data->accel_data.back().timestamp_ns = timestamp;
@@ -205,11 +264,9 @@ class EurocIO : public DatasetIoInterface {
       Eigen::Quaterniond q;
       Eigen::Vector3d pos, vel, accel_bias, gyro_bias;
 
-      ss >> timestamp >> tmp >> pos[0] >> tmp >> pos[1] >> tmp >> pos[2] >>
-          tmp >> q.w() >> tmp >> q.x() >> tmp >> q.y() >> tmp >> q.z() >> tmp >>
-          vel[0] >> tmp >> vel[1] >> tmp >> vel[2] >> tmp >> accel_bias[0] >>
-          tmp >> accel_bias[1] >> tmp >> accel_bias[2] >> tmp >> gyro_bias[0] >>
-          tmp >> gyro_bias[1] >> tmp >> gyro_bias[2];
+      ss >> timestamp >> tmp >> pos[0] >> tmp >> pos[1] >> tmp >> pos[2] >> tmp >> q.w() >> tmp >> q.x() >> tmp >>
+          q.y() >> tmp >> q.z() >> tmp >> vel[0] >> tmp >> vel[1] >> tmp >> vel[2] >> tmp >> accel_bias[0] >> tmp >>
+          accel_bias[1] >> tmp >> accel_bias[2] >> tmp >> gyro_bias[0] >> tmp >> gyro_bias[1] >> tmp >> gyro_bias[2];
 
       data->gt_timestamps.emplace_back(timestamp);
       data->gt_pose_data.emplace_back(q, pos);
@@ -232,8 +289,8 @@ class EurocIO : public DatasetIoInterface {
       Eigen::Quaterniond q;
       Eigen::Vector3d pos;
 
-      ss >> timestamp >> tmp >> pos[0] >> tmp >> pos[1] >> tmp >> pos[2] >>
-          tmp >> q.w() >> tmp >> q.x() >> tmp >> q.y() >> tmp >> q.z();
+      ss >> timestamp >> tmp >> pos[0] >> tmp >> pos[1] >> tmp >> pos[2] >> tmp >> q.w() >> tmp >> q.x() >> tmp >>
+          q.y() >> tmp >> q.z();
 
       data->gt_timestamps.emplace_back(timestamp);
       data->gt_pose_data.emplace_back(q, pos);
@@ -241,7 +298,8 @@ class EurocIO : public DatasetIoInterface {
   }
 
   std::shared_ptr<EurocVioDataset> data;
-};
+  bool load_mocap_as_gt;
+};  // namespace basalt
 
 }  // namespace basalt
 

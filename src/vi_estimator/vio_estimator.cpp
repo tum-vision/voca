@@ -35,32 +35,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/vi_estimator/vio_estimator.h>
 
-#include <basalt/vi_estimator/keypoint_vio.h>
+#include <basalt/vi_estimator/sqrt_keypoint_vio.h>
+#include <basalt/vi_estimator/sqrt_keypoint_vo.h>
+
+#include <sophus/interpolate.hpp>
 
 namespace basalt {
 
-VioEstimatorBase::Ptr VioEstimatorFactory::getVioEstimator(
-    const VioConfig& config, const Calibration<double>& cam, int64_t t_ns,
-    const Sophus::SE3d& T_w_i, const Eigen::Vector3d& vel_w_i,
-    const Eigen::Vector3d& bg, const Eigen::Vector3d& ba, double int_std_dev,
-    const Eigen::Vector3d& g) {
-  KeypointVioEstimator::Ptr res;
+namespace {
 
-  res.reset(new KeypointVioEstimator(t_ns, T_w_i, vel_w_i, bg, ba, int_std_dev,
-                                     g, cam, config));
+template <class Scalar>
+VioEstimatorBase::Ptr factory_helper(const VioConfig& config, const Calibration<double>& cam, const Eigen::Vector3d& g,
+                                     bool use_imu) {
+  VioEstimatorBase::Ptr res;
 
-  res->setMaxKfs(config.vio_max_kfs);
-  res->setMaxStates(config.vio_max_states);
+  if (use_imu) {
+    res.reset(new SqrtKeypointVioEstimator<Scalar>(g, cam, config));
+
+  } else {
+    res.reset(new SqrtKeypointVoEstimator<Scalar>(cam, config));
+  }
 
   return res;
 }
 
-double alignSVD(const std::vector<int64_t>& filter_t_ns,
-                const Eigen::vector<Eigen::Vector3d>& filter_t_w_i,
-                const std::vector<int64_t>& gt_t_ns,
-                Eigen::vector<Eigen::Vector3d>& gt_t_w_i) {
-  Eigen::vector<Eigen::Vector3d> est_associations;
-  Eigen::vector<Eigen::Vector3d> gt_associations;
+}  // namespace
+
+VioEstimatorBase::Ptr VioEstimatorFactory::getVioEstimator(const VioConfig& config, const Calibration<double>& cam,
+                                                           const Eigen::Vector3d& g, bool use_imu, bool use_double) {
+  if (use_double) {
+#ifdef BASALT_INSTANTIATIONS_DOUBLE
+    return factory_helper<double>(config, cam, g, use_imu);
+#else
+    BASALT_LOG_FATAL("Compiled without double support.");
+#endif
+  } else {
+#ifdef BASALT_INSTANTIATIONS_FLOAT
+    return factory_helper<float>(config, cam, g, use_imu);
+#else
+    BASALT_LOG_FATAL("Compiled without float support.");
+#endif
+  }
+}
+
+double alignSVD(const std::vector<int64_t>& filter_t_ns, const Eigen::aligned_vector<Eigen::Vector3d>& filter_t_w_i,
+                const std::vector<int64_t>& gt_t_ns, Eigen::aligned_vector<Eigen::Vector3d>& gt_t_w_i) {
+  Eigen::aligned_vector<Eigen::Vector3d> est_associations;
+  Eigen::aligned_vector<Eigen::Vector3d> gt_associations;
 
   for (size_t i = 0; i < filter_t_w_i.size(); i++) {
     int64_t t_ns = filter_t_ns[i];
@@ -82,7 +103,7 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
     BASALT_ASSERT_STREAM(int_t_ns > 0, "int_t_ns " << int_t_ns);
 
     // Skip if the interval between gt larger than 100ms
-    if (int_t_ns > 1e8) continue;
+    if (int_t_ns > 1.1e8) continue;
 
     double ratio = dt_ns / int_t_ns;
 
@@ -114,14 +135,12 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
 
   Eigen::Matrix3d cov = gt * est.transpose();
 
-  Eigen::JacobiSVD<Eigen::Matrix3d> svd(
-      cov, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  Eigen::JacobiSVD<Eigen::Matrix3d> svd(cov, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
   Eigen::Matrix3d S;
   S.setIdentity();
 
-  if (svd.matrixU().determinant() * svd.matrixV().determinant() < 0)
-    S(2, 2) = -1;
+  if (svd.matrixU().determinant() * svd.matrixV().determinant() < 0) S(2, 2) = -1;
 
   Eigen::Matrix3d rot_gt_est = svd.matrixU() * S * svd.matrixV().transpose();
   Eigen::Vector3d trans = mean_gt - rot_gt_est * mean_est;
@@ -129,9 +148,7 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
   Sophus::SE3d T_gt_est(rot_gt_est, trans);
   Sophus::SE3d T_est_gt = T_gt_est.inverse();
 
-  for (size_t i = 0; i < gt_t_w_i.size(); i++) {
-    gt_t_w_i[i] = T_est_gt * gt_t_w_i[i];
-  }
+  for (auto& i : gt_t_w_i) i = T_est_gt * i;
 
   double error = 0;
   for (size_t i = 0; i < est_associations.size(); i++) {
@@ -150,4 +167,166 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
 
   return error;
 }
+
+int associate(const std::vector<int64_t>& filter_t_ns,                  //
+              const Eigen::aligned_vector<Sophus::SE3d>& filter_T_w_i,  //
+              const std::vector<int64_t>& gt_t_ns,                      //
+              const Eigen::aligned_vector<Sophus::SE3d>& gt_T_w_i,      //
+              Eigen::Matrix<int64_t, Eigen::Dynamic, 1>& out_ts,        //
+              Eigen::Matrix<float, 3, Eigen::Dynamic>& out_est_xyz,
+              Eigen::Matrix<float, 3, Eigen::Dynamic>& out_ref_xyz,
+              Eigen::Matrix<float, 4, Eigen::Dynamic>& out_est_quat,
+              Eigen::Matrix<float, 4, Eigen::Dynamic>& out_ref_quat) {
+  // BASALT_ASSERT(filter_t_ns.size() == filter_t_w_i.size() && gt_t_ns.size() == gt_t_ns.size());
+  int num_est = filter_t_ns.size();
+  int num_ref = gt_t_ns.size();
+  // BASALT_ASSERT(num_est < num_ref);
+
+  out_ref_xyz.resize(3, num_est);
+  out_est_xyz.resize(3, num_est);
+  out_est_quat.resize(4, num_est);
+  out_ref_quat.resize(4, num_est);
+  out_ts.resize(num_est);
+
+  int num_assocs = 0;
+
+  Eigen::Index i = 0;  // est index
+  Eigen::Index j = 0;  // ref index
+
+  // Advance est to first ref or after
+  while (filter_t_ns[i] < gt_t_ns[0] && i < num_est) i++;
+
+  for (; i < num_est; i++) {
+    int64_t t_ns = filter_t_ns[i];
+
+    // j is -1
+    for (; j < num_ref; j++) {
+      if (gt_t_ns[j] > t_ns) break;
+    }
+    j--;  // j will never be -1 because i starts such that est(i) > ref(0)
+
+    if (j >= num_ref - 1) continue;
+
+    double dt_ns = t_ns - gt_t_ns[j];
+    double int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
+    // BASALT_ASSERT(dt_ns >= 0 && int_t_ns > 0);
+
+    if (int_t_ns > 1.1e8) continue;  // Skip if >100ms
+
+    double ratio = dt_ns / int_t_ns;
+    // BASALT_ASSERT(ratio >= 0 && ratio < 1);
+
+    Sophus::SE3f gt = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio).cast<float>();
+    out_ref_xyz.col(num_assocs) = gt.translation().cast<float>();
+    out_ref_quat.col(num_assocs) = gt.unit_quaternion().coeffs().cast<float>();
+    out_est_xyz.col(num_assocs) = filter_T_w_i[i].translation().cast<float>();
+    out_est_quat.col(num_assocs) = filter_T_w_i[i].unit_quaternion().coeffs().cast<float>();
+    out_ts(num_assocs) = t_ns;
+    num_assocs++;
+  }
+
+  out_ref_xyz.conservativeResize(Eigen::NoChange, num_assocs);
+  out_est_xyz.conservativeResize(Eigen::NoChange, num_assocs);
+  out_ts.conservativeResize(num_assocs);
+  return num_assocs;
+}
+
+Eigen::Matrix4f get_alignment(const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& est_xyz,
+                              const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& ref_xyz,  //
+                              int i, int j) {
+  // BASALT_ASSERT(est_xyz.cols() == ref_xyz.cols());
+  // int pose_count = est_xyz.cols();
+  // BASALT_ASSERT(i < j && i >= 0 && i < pose_count && j >= 0 && j <= pose_count);
+
+  // Get block i-j without copy
+  auto estb_xyz = est_xyz.block(0, i, 3, j - i);
+  auto refb_xyz = ref_xyz.block(0, i, 3, j - i);
+
+  Eigen::Vector3f mean_est = estb_xyz.rowwise().mean();
+  Eigen::Vector3f mean_ref = refb_xyz.rowwise().mean();
+
+  Eigen::Matrix<float, 3, Eigen::Dynamic> c_est = estb_xyz.colwise() - mean_est;
+  Eigen::Matrix<float, 3, Eigen::Dynamic> c_ref = refb_xyz.colwise() - mean_ref;
+  Eigen::Matrix3f cov = c_ref * c_est.transpose();
+  Eigen::JacobiSVD<Eigen::Matrix3f> svd(cov, Eigen::ComputeFullU | Eigen::ComputeFullV);
+
+  Eigen::Matrix3f S;
+  S.setIdentity();
+
+  if (svd.matrixU().determinant() * svd.matrixV().determinant() < 0) S(2, 2) = -1;
+
+  Eigen::Matrix3f rot_gt_est = svd.matrixU() * S * svd.matrixV().transpose();
+  Eigen::Vector3f trans = mean_ref - rot_gt_est * mean_est;
+
+  Sophus::SE3f T_ref_est(rot_gt_est, trans);
+
+  return T_ref_est.matrix();
+}
+
+float compute_ate(const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& est_xyz,
+                  const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& ref_xyz,  //
+                  const Eigen::Ref<Eigen::Matrix4f>& T_ref_est_mat,                          //
+                  int i, int j) {
+  // BASALT_ASSERT(est_xyz.cols() == ref_xyz.cols());
+  int pose_count = j - i;
+  // BASALT_ASSERT(i < j && i >= 0 && i < pose_count && j >= 0 && j <= pose_count);
+
+  Sophus::SE3f T_ref_est(T_ref_est_mat);
+
+  float rmse = 0;
+
+  for (Eigen::Index k = i; k < j; k++) {
+    Eigen::Vector3f res = T_ref_est * est_xyz.col(k) - ref_xyz.col(k);
+    rmse += res.transpose() * res;
+  }
+
+  rmse = std::sqrt(rmse / pose_count);
+
+  return rmse;
+}
+
+float compute_rte(const Eigen::Ref<const Eigen::Matrix<int64_t, Eigen::Dynamic, 1>>& est_ts,  //
+                  const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& est_xyz,   //
+                  const Eigen::Ref<const Eigen::Matrix<float, 4, Eigen::Dynamic>>& est_quat,  //
+                  const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& ref_xyz,   //
+                  const Eigen::Ref<const Eigen::Matrix<float, 4, Eigen::Dynamic>>& ref_quat,  //
+                  Eigen::Matrix<int64_t, Eigen::Dynamic, 1>& out_ts,                          //
+                  Eigen::Matrix<float, Eigen::Dynamic, 1>& out_residuals,                     //
+                  int i, int j, int delta /* = 6 */) {
+  float sqsum = 0;
+
+  // number of pose pairs + 1 for the initial pose/timestamp
+  int rel_count = (j - i) / delta;
+  rel_count += (j - i) % delta != 0 ? 1 : 0;  // Edge case when j-i is mult. of DELTA
+
+  out_ts.resize(rel_count);
+  out_residuals.resize(rel_count);
+
+  out_ts(0) = est_ts(i);
+  out_residuals(0) = 0;
+
+  for (Eigen::Index k = i + delta; k < j; k += delta) {
+    Eigen::Index k0 = k - delta;
+    Sophus::SE3f est0{Eigen::Quaternionf{est_quat.col(k0)}, est_xyz.col(k0)};
+    Sophus::SE3f ref0{Eigen::Quaternionf{ref_quat.col(k0)}, ref_xyz.col(k0)};
+
+    Eigen::Index k1 = k;
+    Sophus::SE3f est1{Eigen::Quaternionf{est_quat.col(k1)}, est_xyz.col(k1)};
+    Sophus::SE3f ref1{Eigen::Quaternionf{ref_quat.col(k1)}, ref_xyz.col(k1)};
+
+    Sophus::SE3f est_delta = est0.inverse() * est1;
+    Sophus::SE3f ref_delta = ref0.inverse() * ref1;
+    Sophus::SE3f estref_delta = est_delta.inverse() * ref_delta;
+    float res = estref_delta.translation().norm();
+
+    out_ts(k1 / delta) = est_ts(k1);
+    out_residuals(k1 / delta) = res;
+
+    sqsum += res * res;
+  }
+
+  float rmse = std::sqrt(sqsum / rel_count);
+  return rmse;
+}
+
 }  // namespace basalt

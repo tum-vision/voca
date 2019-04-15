@@ -1,0 +1,146 @@
+# Copyright 2026, Mateo de Mayo
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Author: Mateo de Mayo <mateo.demayo@tum.de>
+#
+# For documentation on this file and the CI process, see .ci/README.md
+
+default:
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  GET_DATASET_LOCKFILE: "/scratch/uncompression.lock"
+
+stages:
+  - prepare
+  - evalsets
+  - timing
+  - results
+
+.ccache:
+  before_script:
+    - export CCACHE_BASEDIR="$PWD"
+    - export CCACHE_DIR="/ccache"
+    - export CCACHE_COMPILERCHECK=content
+    - ccache --zero-stats || true
+    - ccache --show-stats || true
+  after_script:
+    - export CCACHE_DIR="/ccache"
+    - ccache --show-stats -v
+
+build:
+  stage: prepare
+  extends: .ccache
+  script:
+    - time cmake --preset=release
+    - time cmake --build build
+    - rm -f $GET_DATASET_LOCKFILE
+  artifacts:
+    paths:
+      - build/basalt_vio
+    expire_in: 52 weeks
+
+.run-dataset:
+  allow_failure: true
+  variables:
+    DATASET: ""
+    DETERMINISTIC: 0
+    REPETITIONS: 1
+    NUM_THREADS: 0
+    RESULTS_DIR: output
+  script:
+    - echo "Running dataset $DATASET"
+    - echo $DETERMINISTIC, $NUM_THREADS, $REPETITIONS, $RESULTS_DIR
+    - export DS_DEV=$(jq -r .sequences.$DATASET.device .ci/evaluation.json)
+    - export DS_REL_PATH=$(jq -r .sequences.$DATASET.path .ci/evaluation.json)
+    - export DS_NAME=$(basename $DS_REL_PATH)
+    - export DS_PATH=/$DS_DEV/$DS_REL_PATH
+    - export DS_CONFIG=$(jq -r .configs.$DS_DEV .ci/evaluation.json)
+    - export DS_CALIB=$(jq -r .calibs.$DS_DEV .ci/evaluation.json)
+    - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB
+    - echo Runner variables $GET_DATASET_LOCKFILE
+    - ls /msdmo /msdmi /msdmg /euroc /tumvi
+    - python3 -u .ci/get_dataset.py $DS_PATH /scratch --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
+    - export FINAL_DS_PATH=$(cat get_dataset.log | tail -n 1)
+    - echo $FINAL_DS_PATH | tee FINAL_DS_PATH.txt
+    - echo $DS_PATH | tee DS_PATH.txt
+    - ls
+    - |
+      set -euo pipefail
+      for i in $(seq 1 $REPETITIONS)
+      do
+          echo "Run repetition $i / $REPETITIONS"
+          ./build/basalt_vio --save-times 1 --show-gui 0 --deterministic $DETERMINISTIC --num-threads $NUM_THREADS --dataset-path $FINAL_DS_PATH --dataset-type euroc --cam-calib $DS_CALIB --config-path $DS_CONFIG --save-trajectory euroc --save-trajectory-fn tracking.$DATASET.csv 2>&1 | tee output.$DATASET.log
+          ls
+          export RESDIR=$RESULTS_DIR/$CI_COMMIT_SHORT_SHA-$i/$DATASET
+          echo "Results will be saved in $RESDIR"
+          mkdir -p $RESDIR
+          mv tracking.$DATASET.csv $RESDIR/tracking.csv
+          mv timing.tracking.$DATASET.csv $RESDIR/timing.csv
+          mv stats_vio.json $RESDIR/stats_vio.json
+          mv output.$DATASET.log $RESDIR/output.log
+          tree $RESDIR
+      done
+    - echo "Runs completed"
+  after_script:
+    - echo "Deleting dataset"
+    - export FINAL_DS_PATH=$(cat FINAL_DS_PATH.txt)
+    - export DS_PATH=$(cat DS_PATH.txt)
+    - if [ "$FINAL_DS_PATH" != "$DS_PATH" ]; then echo "Deleting $FINAL_DS_PATH"; rm -rf $FINAL_DS_PATH; fi
+  artifacts:
+    paths:
+      - $RESULTS_DIR
+    expire_in: 52 weeks
+    name: "$RESULTS_DIR-$DATASET"
+
+{evalsets_jobs}
+
+{timing_jobs}
+
+zip:
+  stage: results
+  tags: [basalt-evaluation-box]
+  script:
+    - |
+      echo "# Results"
+      echo "- Project: <$CI_PROJECT_URL>" >> results/README.md
+      echo "- Deterministic: {deterministic}" >> results/README.md
+      echo "- Num threads: {num_threads}" >> results/README.md
+      echo "- Evaluation sets: {evalset_list}" >> results/README.md
+      echo "- Branch: $CI_COMMIT_REF_NAME" >> results/README.md
+      echo "- Commit: $CI_COMMIT_SHORT_SHA" >> results/README.md
+      echo "- Commit URL: <$CI_PROJECT_URL/-/commit/$CI_COMMIT_SHA>" >> results/README.md
+      echo "- Pipeline: $CI_PIPELINE_ID" >> results/README.md
+      echo "- Pipeline URL: <$CI_PIPELINE_URL>" >> results/README.md
+      echo "- Job: $CI_JOB_ID" >> results/README.md
+      echo "- Job URL: <$CI_JOB_URL>" >> results/README.md
+      echo "- CPU: $(awk -F': ' '/model name|Processor/ {{print $2; exit}}' /proc/cpuinfo)" >> results/README.md
+      echo "- RAM: $(awk '/MemTotal/ {{printf "%.0fGB", $2*1024/1000^3}}' /proc/meminfo)" >> results/README.md
+    - tree results
+    - zip -r results.zip results
+    - |
+      echo "# Timing Results"
+      echo "- Project: <$CI_PROJECT_URL>" >> timing-results/README.md
+      echo "- Deterministic: {timing_deterministic}" >> timing-results/README.md
+      echo "- Num threads: {timing_num_threads}" >> timing-results/README.md
+      echo "- Repetitions: {timing_repetitions}" >> timing-results/README.md
+      echo "- Evaluation sets: {timing_evalset_list}" >> timing-results/README.md
+      echo "- Branch: $CI_COMMIT_REF_NAME" >> timing-results/README.md
+      echo "- Commit: $CI_COMMIT_SHORT_SHA" >> timing-results/README.md
+      echo "- Commit URL: <$CI_PROJECT_URL/-/commit/$CI_COMMIT_SHA>" >> timing-results/README.md
+      echo "- Pipeline: $CI_PIPELINE_ID" >> timing-results/README.md
+      echo "- Pipeline URL: <$CI_PIPELINE_URL>" >> timing-results/README.md
+      echo "- Job: $CI_JOB_ID" >> timing-results/README.md
+      echo "- Job URL: <$CI_JOB_URL>" >> timing-results/README.md
+      echo "- CPU: $(awk -F': ' '/model name|Processor/ {{print $2; exit}}' /proc/cpuinfo)" >> timing-results/README.md
+      echo "- RAM: $(awk '/MemTotal/ {{printf "%.0fGB", $2*1024/1000^3}}' /proc/meminfo)" >> timing-results/README.md
+    - tree timing-results
+    - zip -r timing-results.zip timing-results
+    - rm  -f $GET_DATASET_LOCKFILE
+  artifacts:
+    name: "results"
+    expose_as: "Archive of trajectories"
+    paths:
+      - results.zip
+      - timing-results.zip

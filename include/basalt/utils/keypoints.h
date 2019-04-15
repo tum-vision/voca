@@ -34,48 +34,69 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #pragma once
 
+#include <algorithm>
 #include <bitset>
 #include <set>
 
 #include <Eigen/Dense>
 #include <sophus/se3.hpp>
 
-#include <pangolin/image/managed_image.h>
-
-#include <basalt/utils/image.h>
+#include <basalt/image/image.h>
 #include <basalt/utils/sophus_utils.hpp>
 
 #include <basalt/utils/common_types.h>
 #include <basalt/camera/generic_camera.hpp>
+#include <utility>
 
 namespace basalt {
 
 typedef std::bitset<256> Descriptor;
 
-void detectKeypointsMapping(const basalt::Image<const uint16_t>& img_raw,
-                      KeypointsData& kd, int num_features);
+struct Rect {
+  float x, y, w, h;
 
-void detectKeypoints(const basalt::Image<const uint16_t>& img_raw,
-                     KeypointsData& kd, int PATCH_SIZE = 32,
-                     int num_points_cell = 1,
-                     const Eigen::vector<Eigen::Vector2d>& current_points =
-                         Eigen::vector<Eigen::Vector2d>());
+  Rect(float x, float y, float w, float h) : x(x), y(y), w(w), h(h) {}
 
-void computeAngles(const basalt::Image<const uint16_t>& img_raw,
-                   KeypointsData& kd, bool rotate_features);
+  bool inBounds(float xx, float yy) const { return xx >= x && xx < x + w && yy >= y && yy < y + h; }
+};
 
-void computeDescriptors(const basalt::Image<const uint16_t>& img_raw,
-                        KeypointsData& kd);
+struct Masks {
+  std::vector<Rect> masks{};
 
-void matchFastHelper(const std::vector<std::bitset<256>>& corner_descriptors_1,
-                     const std::vector<std::bitset<256>>& corner_descriptors_2,
-                     std::map<int, int>& matches, int threshold,
-                     double test_dist);
+  bool inBounds(float x, float y) const {
+    return std::any_of(masks.cbegin(), masks.cend(), [x, y](const Rect& mask) { return mask.inBounds(x, y); });
+  }
+
+  Masks& operator+=(const Masks& rhs) {
+    masks.insert(masks.end(), rhs.masks.begin(), rhs.masks.end());
+    return *this;
+  }
+
+  friend Masks operator+(Masks lhs, const Masks& rhs) {
+    lhs += rhs;
+    return lhs;
+  }
+};
+
+void detectKeypointsMapping(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int num_features);
+
+void detectKeypoints(
+    const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int PATCH_SIZE = 32, int num_points_cell = 1,
+    int min_threshold = 5, int max_threshold = 40, float safe_radius = 0.0, const Masks& masks = {},
+    const Eigen::aligned_vector<Eigen::Vector2d>& current_points = Eigen::aligned_vector<Eigen::Vector2d>());
+
+void detectKeypointsWithCells(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd,
+                              const Eigen::MatrixXi& cells, int PATCH_SIZE = 32, int num_points_cell = 1,
+                              int min_threshold = 5, int max_threshold = 40, float safe_radius = 0.0,
+                              const Masks& masks = {});
+
+void computeAngles(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, bool rotate_features);
+
+void computeDescriptors(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd);
 
 void matchDescriptors(const std::vector<std::bitset<256>>& corner_descriptors_1,
                       const std::vector<std::bitset<256>>& corner_descriptors_2,
-                      std::vector<std::pair<int, int>>& matches, int threshold,
-                      double dist_2_best);
+                      std::vector<std::pair<int, int>>& matches, int threshold, double dist_2_best);
 
 inline void computeEssential(const Sophus::SE3d& T_0_1, Eigen::Matrix4d& E) {
   E.setZero();
@@ -85,11 +106,8 @@ inline void computeEssential(const Sophus::SE3d& T_0_1, Eigen::Matrix4d& E) {
   E.topLeftCorner<3, 3>() = Sophus::SO3d::hat(t_0_1.normalized()) * R_0_1;
 }
 
-inline void findInliersEssential(const KeypointsData& kd1,
-                                 const KeypointsData& kd2,
-                                 const Eigen::Matrix4d& E,
-                                 double epipolar_error_threshold,
-                                 MatchData& md) {
+inline void findInliersEssential(const KeypointsData& kd1, const KeypointsData& kd2, const Eigen::Matrix4d& E,
+                                 double epipolar_error_threshold, MatchData& md) {
   md.inliers.clear();
 
   for (size_t j = 0; j < md.matches.size(); j++) {
@@ -104,8 +122,7 @@ inline void findInliersEssential(const KeypointsData& kd1,
   }
 }
 
-void findInliersRansac(const KeypointsData& kd1, const KeypointsData& kd2,
-                       const double ransac_thresh, const int ransac_min_inliers,
-                       MatchData& md);
+void findInliersRansac(const KeypointsData& kd1, const KeypointsData& kd2, const double ransac_thresh,
+                       const int ransac_min_inliers, MatchData& md);
 
 }  // namespace basalt

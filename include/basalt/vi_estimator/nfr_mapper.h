@@ -41,7 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sophus/se3.hpp>
 
 #include <basalt/utils/common_types.h>
-#include <basalt/vi_estimator/ba_base.h>
+#include <basalt/utils/nfr.h>
+#include <basalt/vi_estimator/sc_ba_base.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 
 #include <tbb/concurrent_unordered_map.h>
@@ -49,44 +50,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
 
-#include <mutex>
-
-#include <DBoW3.h>
-
 namespace basalt {
 
-class NfrMapper : public BundleAdjustmentBase {
+template <size_t N>
+class HashBow;
+
+class NfrMapper : public ScBundleAdjustmentBase<double> {
  public:
+  using Scalar = double;
+
   using Ptr = std::shared_ptr<NfrMapper>;
-  using TimeCamId = std::pair<int64_t, std::size_t>;
-  using Matches = tbb::concurrent_unordered_map<
-      std::pair<TimeCamId, TimeCamId>, MatchData,
-      tbb::tbb_hash<std::pair<TimeCamId, TimeCamId>>,
-      std::equal_to<std::pair<TimeCamId, TimeCamId>>,
-      Eigen::aligned_allocator<
-          std::pair<const std::pair<TimeCamId, TimeCamId>, MatchData>>>;
 
   template <class AccumT>
-  struct MapperLinearizeAbsReduce
-      : public BundleAdjustmentBase::LinearizeAbsReduce<AccumT> {
-    using RollPitchFactorConstIter =
-        Eigen::vector<RollPitchFactor>::const_iterator;
-    using RelPoseFactorConstIter = Eigen::vector<RelPoseFactor>::const_iterator;
-    using RelLinDataIter = Eigen::vector<RelLinData>::iterator;
+  struct MapperLinearizeAbsReduce : public ScBundleAdjustmentBase<Scalar>::LinearizeAbsReduce<AccumT> {
+    using RollPitchFactorConstIter = Eigen::aligned_vector<RollPitchFactor>::const_iterator;
+    using RelPoseFactorConstIter = Eigen::aligned_vector<RelPoseFactor>::const_iterator;
+    using RelLinDataConstIter = Eigen::aligned_vector<RelLinData>::const_iterator;
 
-    MapperLinearizeAbsReduce(
-        AbsOrderMap& aom,
-        const Eigen::map<int64_t, PoseStateWithLin>* frame_poses)
-        : BundleAdjustmentBase::LinearizeAbsReduce<AccumT>(aom),
-          frame_poses(frame_poses) {
+    MapperLinearizeAbsReduce(AbsOrderMap& aom, const Eigen::aligned_map<int64_t, PoseStateWithLin<Scalar>>* frame_poses)
+        : ScBundleAdjustmentBase<Scalar>::LinearizeAbsReduce<AccumT>(aom), frame_poses(frame_poses) {
       this->accum.reset(aom.total_size);
       roll_pitch_error = 0;
       rel_error = 0;
     }
 
     MapperLinearizeAbsReduce(const MapperLinearizeAbsReduce& other, tbb::split)
-        : BundleAdjustmentBase::LinearizeAbsReduce<AccumT>(other.aom),
-          frame_poses(other.frame_poses) {
+        : ScBundleAdjustmentBase<Scalar>::LinearizeAbsReduce<AccumT>(other.aom), frame_poses(other.frame_poses) {
       this->accum.reset(this->aom.total_size);
       roll_pitch_error = 0;
       rel_error = 0;
@@ -98,10 +87,8 @@ class NfrMapper : public BundleAdjustmentBase {
       rel_error += rhs.rel_error;
     }
 
-    void operator()(const tbb::blocked_range<RelLinDataIter>& range) {
-      for (RelLinData& rld : range) {
-        rld.invert_keypoint_hessians();
-
+    void operator()(const tbb::blocked_range<RelLinDataConstIter>& range) {
+      for (const RelLinData& rld : range) {
         Eigen::MatrixXd rel_H;
         Eigen::VectorXd rel_b;
         linearizeRel(rld, rel_H, rel_b);
@@ -119,10 +106,8 @@ class NfrMapper : public BundleAdjustmentBase {
         Eigen::Matrix<double, 2, POSE_SIZE> J;
         Sophus::Vector2d res = basalt::rollPitchError(pose, rpf.R_w_i_meas, &J);
 
-        this->accum.template addH<POSE_SIZE, POSE_SIZE>(
-            idx, idx, J.transpose() * rpf.cov_inv * J);
-        this->accum.template addB<POSE_SIZE>(idx,
-                                             J.transpose() * rpf.cov_inv * res);
+        this->accum.template addH<POSE_SIZE, POSE_SIZE>(idx, idx, J.transpose() * rpf.cov_inv * J);
+        this->accum.template addB<POSE_SIZE>(idx, J.transpose() * rpf.cov_inv * res);
 
         roll_pitch_error += res.transpose() * rpf.cov_inv * res;
       }
@@ -137,22 +122,15 @@ class NfrMapper : public BundleAdjustmentBase {
         int idx_j = this->aom.abs_order_map.at(rpf.t_j_ns).first;
 
         Sophus::Matrix6d Ji, Jj;
-        Sophus::Vector6d res =
-            basalt::relPoseError(rpf.T_i_j, pose_i, pose_j, &Ji, &Jj);
+        Sophus::Vector6d res = basalt::relPoseError(rpf.T_i_j, pose_i, pose_j, &Ji, &Jj);
 
-        this->accum.template addH<POSE_SIZE, POSE_SIZE>(
-            idx_i, idx_i, Ji.transpose() * rpf.cov_inv * Ji);
-        this->accum.template addH<POSE_SIZE, POSE_SIZE>(
-            idx_i, idx_j, Ji.transpose() * rpf.cov_inv * Jj);
-        this->accum.template addH<POSE_SIZE, POSE_SIZE>(
-            idx_j, idx_i, Jj.transpose() * rpf.cov_inv * Ji);
-        this->accum.template addH<POSE_SIZE, POSE_SIZE>(
-            idx_j, idx_j, Jj.transpose() * rpf.cov_inv * Jj);
+        this->accum.template addH<POSE_SIZE, POSE_SIZE>(idx_i, idx_i, Ji.transpose() * rpf.cov_inv * Ji);
+        this->accum.template addH<POSE_SIZE, POSE_SIZE>(idx_i, idx_j, Ji.transpose() * rpf.cov_inv * Jj);
+        this->accum.template addH<POSE_SIZE, POSE_SIZE>(idx_j, idx_i, Jj.transpose() * rpf.cov_inv * Ji);
+        this->accum.template addH<POSE_SIZE, POSE_SIZE>(idx_j, idx_j, Jj.transpose() * rpf.cov_inv * Jj);
 
-        this->accum.template addB<POSE_SIZE>(
-            idx_i, Ji.transpose() * rpf.cov_inv * res);
-        this->accum.template addB<POSE_SIZE>(
-            idx_j, Jj.transpose() * rpf.cov_inv * res);
+        this->accum.template addB<POSE_SIZE>(idx_i, Ji.transpose() * rpf.cov_inv * res);
+        this->accum.template addB<POSE_SIZE>(idx_j, Jj.transpose() * rpf.cov_inv * res);
 
         rel_error += res.transpose() * rpf.cov_inv * res;
       }
@@ -161,21 +139,20 @@ class NfrMapper : public BundleAdjustmentBase {
     double roll_pitch_error;
     double rel_error;
 
-    const Eigen::map<int64_t, PoseStateWithLin>* frame_poses;
+    const Eigen::aligned_map<int64_t, PoseStateWithLin<Scalar>>* frame_poses;
   };
 
-  NfrMapper(const basalt::Calibration<double>& calib, const VioConfig& config,
-            const std::string& vocabulary = "");
+  NfrMapper(const basalt::Calibration<double>& calib, const VioConfig& config);
 
   void addMargData(basalt::MargData::Ptr& data);
 
   void processMargData(basalt::MargData& m);
 
-  void extractNonlinearFactors(basalt::MargData& m);
+  bool extractNonlinearFactors(basalt::MargData& m);
 
   void optimize(int num_iterations = 10);
 
-  Eigen::map<int64_t, PoseStateWithLin>& getFramePoses();
+  Eigen::aligned_map<int64_t, PoseStateWithLin<Scalar>>& getFramePoses();
 
   void computeRelPose(double& rel_error);
 
@@ -194,14 +171,10 @@ class NfrMapper : public BundleAdjustmentBase {
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  Eigen::vector<RollPitchFactor> roll_pitch_factors;
-  Eigen::vector<RelPoseFactor> rel_pose_factors;
+  Eigen::aligned_vector<RollPitchFactor> roll_pitch_factors;
+  Eigen::aligned_vector<RelPoseFactor> rel_pose_factors;
 
   std::unordered_map<int64_t, OpticalFlowInput::Ptr> img_data;
-
-  tbb::concurrent_unordered_map<
-      TimeCamId, std::pair<DBoW3::BowVector, DBoW3::FeatureVector>>
-      bow_data;
 
   Corners feature_corners;
 
@@ -209,10 +182,10 @@ class NfrMapper : public BundleAdjustmentBase {
 
   FeatureTracks feature_tracks;
 
-  DBoW3::Database bow_database;
-
-  std::unordered_map<int, TimeCamId> bow_id_to_tcid;
+  std::shared_ptr<HashBow<256>> hash_bow_database;
 
   VioConfig config;
+
+  double lambda, min_lambda, max_lambda, lambda_vee;
 };
 }  // namespace basalt

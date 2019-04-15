@@ -33,7 +33,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -42,7 +41,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sophus/se3.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
-#include <tbb/tbb.h>
 
 #include <pangolin/display/image_view.h>
 #include <pangolin/gl/gldraw.h>
@@ -57,7 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/io/marg_data_io.h>
 #include <basalt/spline/se3_spline.h>
 #include <basalt/utils/sim_utils.h>
-#include <basalt/vi_estimator/keypoint_vio.h>
+#include <basalt/vi_estimator/vio_estimator.h>
 
 #include <basalt/calibration/calibration.hpp>
 
@@ -77,12 +75,7 @@ bool next_step();
 void alignButton();
 
 static const int knot_time = 3;
-static const double obs_std_dev = 0.5;
-static const double accel_std_dev = 0.23;
-static const double gyro_std_dev = 0.0027;
-
-static const double accel_bias_std_dev = 0.00123;
-static const double gyro_bias_std_dev = 0.000234;
+// static const double obs_std_dev = 0.5;
 
 Eigen::Vector3d g(0, 0, -9.81);
 
@@ -90,23 +83,15 @@ Eigen::Vector3d g(0, 0, -9.81);
 // std::mt19937 gen{rd()};
 std::mt19937 gen{1};
 
-std::normal_distribution<> obs_noise_dist{0, obs_std_dev};
-std::normal_distribution<> gyro_noise_dist{0, gyro_std_dev};
-std::normal_distribution<> accel_noise_dist{0, accel_std_dev};
-
-std::normal_distribution<> gyro_bias_dist{0, gyro_bias_std_dev};
-std::normal_distribution<> accel_bias_dist{0, accel_bias_std_dev};
-
 // Simulated data
 
 basalt::Se3Spline<5> gt_spline(int64_t(knot_time * 1e9));
 
-Eigen::vector<Eigen::Vector3d> gt_points;
-Eigen::vector<Sophus::SE3d> gt_frame_T_w_i;
-Eigen::vector<Eigen::Vector3d> gt_frame_t_w_i, vio_t_w_i;
+Eigen::aligned_vector<Eigen::Vector3d> gt_points;
+Eigen::aligned_vector<Sophus::SE3d> gt_frame_T_w_i;
+Eigen::aligned_vector<Eigen::Vector3d> gt_frame_t_w_i, vio_t_w_i;
 std::vector<int64_t> gt_frame_t_ns, kf_t_ns;
-Eigen::vector<Eigen::Vector3d> gt_accel, gt_gyro, gt_accel_bias, gt_gyro_bias,
-    noisy_accel, noisy_gyro, gt_vel;
+Eigen::aligned_vector<Eigen::Vector3d> gt_accel, gt_gyro, gt_accel_bias, gt_gyro_bias, noisy_accel, noisy_gyro, gt_vel;
 std::vector<int64_t> gt_imu_t_ns;
 
 std::map<basalt::TimeCamId, basalt::SimObservations> gt_observations;
@@ -116,12 +101,12 @@ std::string marg_data_path;
 
 // VIO vars
 basalt::Calibration<double> calib;
-basalt::KeypointVioEstimator::Ptr vio;
+basalt::VioEstimatorBase::Ptr vio;
 
 // Visualization vars
 std::unordered_map<int64_t, basalt::VioVisualizationData::Ptr> vis_map;
 tbb::concurrent_bounded_queue<basalt::VioVisualizationData::Ptr> out_vis_queue;
-tbb::concurrent_bounded_queue<basalt::PoseVelBiasState::Ptr> out_state_queue;
+tbb::concurrent_bounded_queue<basalt::PoseVelBiasState<double>::Ptr> out_state_queue;
 
 std::vector<pangolin::TypedImage> images;
 
@@ -130,50 +115,49 @@ constexpr int UI_WIDTH = 200;
 pangolin::DataLog imu_data_log, vio_data_log, error_data_log;
 pangolin::Plotter* plotter;
 
-pangolin::Var<int> show_frame("ui.show_frame", 0, 0, 1000);
+pangolin::Var<int> show_frame{"ui.show_frame", 0, 0, 1000};
 
-pangolin::Var<bool> show_obs("ui.show_obs", true, false, true);
-pangolin::Var<bool> show_obs_noisy("ui.show_obs_noisy", true, false, true);
-pangolin::Var<bool> show_obs_vio("ui.show_obs_vio", true, false, true);
+pangolin::Var<bool> show_obs{"ui.show_obs", true, true};
+pangolin::Var<bool> show_obs_noisy{"ui.show_obs_noisy", true, true};
+pangolin::Var<bool> show_obs_vio{"ui.show_obs_vio", true, true};
 
-pangolin::Var<bool> show_ids("ui.show_ids", false, false, true);
+pangolin::Var<bool> show_ids{"ui.show_ids", false, true};
 
-pangolin::Var<bool> show_accel("ui.show_accel", false, false, true);
-pangolin::Var<bool> show_gyro("ui.show_gyro", false, false, true);
-pangolin::Var<bool> show_gt_vel("ui.show_gt_vel", false, false, true);
-pangolin::Var<bool> show_gt_pos("ui.show_gt_pos", true, false, true);
-pangolin::Var<bool> show_gt_bg("ui.show_gt_bg", false, false, true);
-pangolin::Var<bool> show_gt_ba("ui.show_gt_ba", false, false, true);
+pangolin::Var<bool> show_accel{"ui.show_accel", false, true};
+pangolin::Var<bool> show_gyro{"ui.show_gyro", false, true};
+pangolin::Var<bool> show_gt_vel{"ui.show_gt_vel", false, true};
+pangolin::Var<bool> show_gt_pos{"ui.show_gt_pos", true, true};
+pangolin::Var<bool> show_gt_bg{"ui.show_gt_bg", false, true};
+pangolin::Var<bool> show_gt_ba{"ui.show_gt_ba", false, true};
 
-pangolin::Var<bool> show_est_vel("ui.show_est_vel", false, false, true);
-pangolin::Var<bool> show_est_pos("ui.show_est_pos", true, false, true);
-pangolin::Var<bool> show_est_bg("ui.show_est_bg", false, false, true);
-pangolin::Var<bool> show_est_ba("ui.show_est_ba", false, false, true);
+pangolin::Var<bool> show_est_vel{"ui.show_est_vel", false, true};
+pangolin::Var<bool> show_est_pos{"ui.show_est_pos", true, true};
+pangolin::Var<bool> show_est_bg{"ui.show_est_bg", false, true};
+pangolin::Var<bool> show_est_ba{"ui.show_est_ba", false, true};
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
-Button next_step_btn("ui.next_step", &next_step);
+Button next_step_btn{"ui.next_step", &next_step};
 
-pangolin::Var<bool> continue_btn("ui.continue_btn", true, false, true);
+pangolin::Var<bool> continue_btn{"ui.continue", true, true};
 
-Button align_step_btn("ui.align_button", &alignButton);
+Button align_step_btn{"ui.align_se3", &alignButton};
 
 int main(int argc, char** argv) {
   srand(1);
 
   bool show_gui = true;
   std::string cam_calib_path;
+  std::string result_path;
 
   CLI::App app{"App description"};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
-  app.add_option("--cam-calib", cam_calib_path,
-                 "Ground-truth camera calibration used for simulation.")
-      ->required();
+  app.add_option("--cam-calib", cam_calib_path, "Ground-truth camera calibration used for simulation.")->required();
 
-  app.add_option("--marg-data", marg_data_path,
-                 "Folder to store marginalization data.")
-      ->required();
+  app.add_option("--marg-data", marg_data_path, "Folder to store marginalization data.")->required();
+
+  app.add_option("--result-path", result_path, "Path to result file where the system will write RMSE ATE.");
 
   try {
     app.parse(argc, argv);
@@ -182,6 +166,7 @@ int main(int argc, char** argv) {
   }
 
   load_data(cam_calib_path);
+
   gen_data();
 
   setup_vio();
@@ -191,14 +176,11 @@ int main(int argc, char** argv) {
 
   std::thread t0([&]() {
     for (size_t i = 0; i < gt_imu_t_ns.size(); i++) {
-      basalt::ImuData::Ptr data(new basalt::ImuData);
+      basalt::ImuData<double>::Ptr data(new basalt::ImuData<double>);
       data->t_ns = gt_imu_t_ns[i];
 
       data->accel = noisy_accel[i];
       data->gyro = noisy_gyro[i];
-
-      data->accel_cov.setConstant(accel_std_dev * accel_std_dev);
-      data->gyro_cov.setConstant(gyro_std_dev * gyro_std_dev);
 
       vio->addIMUToQueue(data);
     }
@@ -214,14 +196,14 @@ int main(int argc, char** argv) {
       data->t_ns = t_ns;
 
       for (size_t j = 0; j < calib.T_i_c.size(); j++) {
-        data->observations.emplace_back();
+        data->keypoints.emplace_back();
         basalt::TimeCamId tcid(data->t_ns, j);
         const basalt::SimObservations& obs = noisy_observations.at(tcid);
         for (size_t k = 0; k < obs.pos.size(); k++) {
           Eigen::AffineCompact2f t;
           t.setIdentity();
           t.translation() = obs.pos[k].cast<float>();
-          data->observations.back()[obs.id[k]] = t;
+          data->keypoints.back()[obs.id[k]] = t;
         }
       }
 
@@ -250,7 +232,7 @@ int main(int argc, char** argv) {
   });
 
   std::thread t3([&]() {
-    basalt::PoseVelBiasState::Ptr data;
+    basalt::PoseVelBiasState<double>::Ptr data;
 
     while (true) {
       out_state_queue.pop(data);
@@ -284,24 +266,20 @@ int main(int argc, char** argv) {
   });
 
   if (show_gui) {
-    pangolin::CreateWindowAndBind("Main", 1800, 1000);
+    pangolin::CreateWindowAndBind("Main", 1800, 1000, basalt::vis::default_win_params);
 
     glEnable(GL_DEPTH_TEST);
 
-    pangolin::View& img_view_display =
-        pangolin::CreateDisplay()
-            .SetBounds(0.4, 1.0, pangolin::Attach::Pix(UI_WIDTH), 0.5)
-            .SetLayout(pangolin::LayoutEqual);
+    pangolin::View& img_view_display = pangolin::CreateDisplay()
+                                           .SetBounds(0.4, 1.0, pangolin::Attach::Pix(UI_WIDTH), 0.5)
+                                           .SetLayout(pangolin::LayoutEqual);
 
-    pangolin::View& plot_display = pangolin::CreateDisplay().SetBounds(
-        0.0, 0.4, pangolin::Attach::Pix(UI_WIDTH), 1.0);
+    pangolin::View& plot_display = pangolin::CreateDisplay().SetBounds(0.0, 0.4, pangolin::Attach::Pix(UI_WIDTH), 1.0);
 
-    plotter = new pangolin::Plotter(&imu_data_log, 0.0, kf_t_ns.back() * 1e-9,
-                                    -10.0, 10.0, 0.01f, 0.01f);
+    plotter = new pangolin::Plotter(&imu_data_log, 0.0, kf_t_ns.back() * 1e-9, -10.0, 10.0, 0.01f, 0.01f);
     plot_display.AddDisplay(*plotter);
 
-    pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0,
-                                          pangolin::Attach::Pix(UI_WIDTH));
+    pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, pangolin::Attach::Pix(UI_WIDTH));
 
     std::vector<std::shared_ptr<pangolin::ImageView>> img_view;
     while (img_view.size() < calib.intrinsics.size()) {
@@ -311,19 +289,16 @@ int main(int argc, char** argv) {
       img_view.push_back(iv);
 
       img_view_display.AddDisplay(*iv);
-      iv->extern_draw_function =
-          std::bind(&draw_image_overlay, std::placeholders::_1, idx);
+      iv->extern_draw_function = std::bind(&draw_image_overlay, std::placeholders::_1, idx);
     }
 
-    pangolin::OpenGlRenderState camera(
-        pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
-        pangolin::ModelViewLookAt(15, 3, 15, 0, 0, 0, pangolin::AxisZ));
+    pangolin::OpenGlRenderState camera(pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
+                                       pangolin::ModelViewLookAt(15, 3, 15, 0, 0, 0, pangolin::AxisZ));
 
-    pangolin::View& display3D =
-        pangolin::CreateDisplay()
-            .SetAspect(-640 / 480.0)
-            .SetBounds(0.4, 1.0, 0.5, 1.0)
-            .SetHandler(new pangolin::Handler3D(camera));
+    pangolin::View& display3D = pangolin::CreateDisplay()
+                                    .SetAspect(-640 / 480.0)
+                                    .SetBounds(0.4, 1.0, 0.5, 1.0)
+                                    .SetHandler(new pangolin::Handler3D(camera));
 
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -342,11 +317,9 @@ int main(int argc, char** argv) {
         draw_plots();
       }
 
-      if (show_accel.GuiChanged() || show_gyro.GuiChanged() ||
-          show_gt_vel.GuiChanged() || show_gt_pos.GuiChanged() ||
-          show_gt_ba.GuiChanged() || show_gt_bg.GuiChanged() ||
-          show_est_vel.GuiChanged() || show_est_pos.GuiChanged() ||
-          show_est_ba.GuiChanged() || show_est_bg.GuiChanged()) {
+      if (show_accel.GuiChanged() || show_gyro.GuiChanged() || show_gt_vel.GuiChanged() || show_gt_pos.GuiChanged() ||
+          show_gt_ba.GuiChanged() || show_gt_bg.GuiChanged() || show_est_vel.GuiChanged() ||
+          show_est_pos.GuiChanged() || show_est_ba.GuiChanged() || show_est_bg.GuiChanged()) {
         draw_plots();
       }
 
@@ -366,12 +339,35 @@ int main(int argc, char** argv) {
   t3.join();
   // t4.join();
 
+  if (!result_path.empty()) {
+    Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
+
+    auto it = vis_map.find(kf_t_ns.back());
+
+    if (it != vis_map.end()) {
+      for (const auto& [ts, t] : it->second->states) vio_t_w_i.emplace_back(t.translation());
+
+    } else {
+      std::cerr << "Could not find results!!" << std::endl;
+    }
+
+    BASALT_ASSERT(kf_t_ns.size() == vio_t_w_i.size());
+
+    double error = basalt::alignSVD(kf_t_ns, vio_t_w_i, gt_frame_t_ns, gt_frame_t_w_i);
+
+    std::ofstream os(result_path);
+    os << error << std::endl;
+    os.close();
+  }
+
   return 0;
 }
 
 void draw_image_overlay(pangolin::View& v, size_t cam_id) {
+  UNUSED(v);
+
   size_t frame_id = show_frame;
-  basalt::TimeCamId tcid = std::make_pair(kf_t_ns[frame_id], cam_id);
+  basalt::TimeCamId tcid(kf_t_ns[frame_id], cam_id);
 
   if (show_obs) {
     glLineWidth(1.0);
@@ -387,11 +383,10 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
         const Eigen::Vector2f c = cr.pos[i].cast<float>();
         pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
 
-        if (show_ids)
-          pangolin::GlFont::I().Text("%d", cr.id[i]).Draw(c[0], c[1]);
+        if (show_ids) FONT.Text("%d", cr.id[i]).Draw(c[0], c[1]);
       }
 
-      pangolin::GlFont::I().Text("%d gt points", cr.pos.size()).Draw(5, 20);
+      FONT.Text("%d gt points", cr.pos.size()).Draw(5, 20);
     }
   }
 
@@ -409,11 +404,10 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
         const Eigen::Vector2f c = cr.pos[i].cast<float>();
         pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
 
-        if (show_ids)
-          pangolin::GlFont::I().Text("%d", cr.id[i]).Draw(c[0], c[1]);
+        if (show_ids) FONT.Text("%d", cr.id[i]).Draw(c[0], c[1]);
       }
 
-      pangolin::GlFont::I().Text("%d noisy points", cr.pos.size()).Draw(5, 40);
+      FONT.Text("%d noisy points", cr.pos.size()).Draw(5, 40);
     }
   }
 
@@ -425,8 +419,8 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
 
     auto it = vis_map.find(gt_frame_t_ns[frame_id]);
 
-    if (it != vis_map.end() && cam_id < it->second->projections.size()) {
-      const auto& points = it->second->projections[cam_id];
+    if (it != vis_map.end() && cam_id < it->second->projections->size()) {
+      const auto& points = it->second->projections->at(cam_id);
 
       if (points.size() > 0) {
         double min_id = points[0][2], max_id = points[0][2];
@@ -440,13 +434,12 @@ void draw_image_overlay(pangolin::View& v, size_t cam_id) {
           const Eigen::Vector4d c = points[i];
           pangolin::glDrawCirclePerimeter(c[0], c[1], radius);
 
-          if (show_ids)
-            pangolin::GlFont::I().Text("%d", int(c[3])).Draw(c[0], c[1]);
+          if (show_ids) FONT.Text("%d", int(c[3])).Draw(c[0], c[1]);
         }
       }
 
       glColor3f(0.0, 0.0, 1.0);
-      pangolin::GlFont::I().Text("%d vio points", points.size()).Draw(5, 60);
+      FONT.Text("%d vio points", points.size()).Draw(5, 60);
     }
   }
 }
@@ -469,11 +462,11 @@ void draw_scene() {
   auto it = vis_map.find(kf_t_ns[frame_id]);
 
   if (it != vis_map.end()) {
-    for (const auto& p : it->second->states)
+    for (const auto& [ts, p] : it->second->states)
       for (size_t i = 0; i < calib.T_i_c.size(); i++)
         render_camera((p * calib.T_i_c[i]).matrix(), 2.0f, cam_color, 0.1f);
 
-    for (const auto& p : it->second->frames)
+    for (const auto& [ts, p] : it->second->frames)
       for (size_t i = 0; i < calib.T_i_c.size(); i++)
         render_camera((p * calib.T_i_c[i]).matrix(), 2.0f, pose_color, 0.1f);
 
@@ -492,12 +485,10 @@ void load_data(const std::string& calib_path) {
   if (os.is_open()) {
     cereal::JSONInputArchive archive(os);
     archive(calib);
-    std::cout << "Loaded camera with " << calib.intrinsics.size()
-              << " cameras" << std::endl;
+    std::cout << "Loaded camera with " << calib.intrinsics.size() << " cameras" << std::endl;
 
   } else {
-    std::cerr << "could not load camera calibration " << calib_path
-              << std::endl;
+    std::cerr << "could not load camera calibration " << calib_path << std::endl;
     std::abort();
   }
 }
@@ -514,7 +505,7 @@ void gen_data() {
       cereal::JSONInputArchive archive(is);
 
       int64_t t_ns;
-      Eigen::vector<Sophus::SE3d> knots;
+      Eigen::aligned_vector<Sophus::SE3d> knots;
 
       archive(cereal::make_nvp("t_ns", t_ns));
       archive(cereal::make_nvp("knots", knots));
@@ -522,7 +513,7 @@ void gen_data() {
       gt_spline = basalt::Se3Spline<5>(t_ns);
 
       for (size_t i = 0; i < knots.size(); i++) {
-        gt_spline.knots_push_back(knots[i]);
+        gt_spline.knotsPushBack(knots[i]);
       }
 
       archive(cereal::make_nvp("noisy_accel", noisy_accel));
@@ -557,7 +548,7 @@ void gen_data() {
 
   mdl.start(marg_data_path);
 
-  Eigen::map<int64_t, Sophus::SE3d> tmp_poses;
+  Eigen::aligned_map<int64_t, Sophus::SE3d> tmp_poses;
 
   while (true) {
     basalt::MargData::Ptr data;
@@ -591,110 +582,80 @@ void draw_plots() {
   plotter->ClearMarkers();
 
   if (show_accel) {
-    plotter->AddSeries("$0", "$1", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Red(), "accel measurements x");
-    plotter->AddSeries("$0", "$2", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Green(), "accel measurements y");
-    plotter->AddSeries("$0", "$3", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Blue(), "accel measurements z");
+    plotter->AddSeries("$0", "$1", pangolin::DrawingModeDashed, pangolin::Colour::Red(), "accel measurements x");
+    plotter->AddSeries("$0", "$2", pangolin::DrawingModeDashed, pangolin::Colour::Green(), "accel measurements y");
+    plotter->AddSeries("$0", "$3", pangolin::DrawingModeDashed, pangolin::Colour::Blue(), "accel measurements z");
   }
 
   if (show_gyro) {
-    plotter->AddSeries("$0", "$4", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Red(), "gyro measurements x");
-    plotter->AddSeries("$0", "$5", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Green(), "gyro measurements y");
-    plotter->AddSeries("$0", "$6", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Blue(), "gyro measurements z");
+    plotter->AddSeries("$0", "$4", pangolin::DrawingModeDashed, pangolin::Colour::Red(), "gyro measurements x");
+    plotter->AddSeries("$0", "$5", pangolin::DrawingModeDashed, pangolin::Colour::Green(), "gyro measurements y");
+    plotter->AddSeries("$0", "$6", pangolin::DrawingModeDashed, pangolin::Colour::Blue(), "gyro measurements z");
   }
 
   if (show_gt_vel) {
-    plotter->AddSeries("$0", "$7", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Red(), "ground-truth velocity x");
-    plotter->AddSeries("$0", "$8", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Green(), "ground-truth velocity y");
-    plotter->AddSeries("$0", "$9", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Blue(), "ground-truth velocity z");
+    plotter->AddSeries("$0", "$7", pangolin::DrawingModeDashed, pangolin::Colour::Red(), "ground-truth velocity x");
+    plotter->AddSeries("$0", "$8", pangolin::DrawingModeDashed, pangolin::Colour::Green(), "ground-truth velocity y");
+    plotter->AddSeries("$0", "$9", pangolin::DrawingModeDashed, pangolin::Colour::Blue(), "ground-truth velocity z");
   }
 
   if (show_gt_pos) {
-    plotter->AddSeries("$0", "$10", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Red(), "ground-truth position x");
-    plotter->AddSeries("$0", "$11", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Green(), "ground-truth position y");
-    plotter->AddSeries("$0", "$12", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Blue(), "ground-truth position z");
+    plotter->AddSeries("$0", "$10", pangolin::DrawingModeDashed, pangolin::Colour::Red(), "ground-truth position x");
+    plotter->AddSeries("$0", "$11", pangolin::DrawingModeDashed, pangolin::Colour::Green(), "ground-truth position y");
+    plotter->AddSeries("$0", "$12", pangolin::DrawingModeDashed, pangolin::Colour::Blue(), "ground-truth position z");
   }
 
   if (show_gt_bg) {
-    plotter->AddSeries("$0", "$13", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Red(), "ground-truth gyro bias x");
-    plotter->AddSeries("$0", "$14", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Green(), "ground-truth gyro bias y");
-    plotter->AddSeries("$0", "$15", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Blue(), "ground-truth gyro bias z");
+    plotter->AddSeries("$0", "$13", pangolin::DrawingModeDashed, pangolin::Colour::Red(), "ground-truth gyro bias x");
+    plotter->AddSeries("$0", "$14", pangolin::DrawingModeDashed, pangolin::Colour::Green(), "ground-truth gyro bias y");
+    plotter->AddSeries("$0", "$15", pangolin::DrawingModeDashed, pangolin::Colour::Blue(), "ground-truth gyro bias z");
   }
 
   if (show_gt_ba) {
-    plotter->AddSeries("$0", "$16", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Red(), "ground-truth accel bias x");
-    plotter->AddSeries("$0", "$17", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Green(), "ground-truth accel bias y");
-    plotter->AddSeries("$0", "$18", pangolin::DrawingModeDashed,
-                       pangolin::Colour::Blue(), "ground-truth accel bias z");
+    plotter->AddSeries("$0", "$16", pangolin::DrawingModeDashed, pangolin::Colour::Red(), "ground-truth accel bias x");
+    plotter->AddSeries("$0", "$17", pangolin::DrawingModeDashed, pangolin::Colour::Green(),
+                       "ground-truth accel bias y");
+    plotter->AddSeries("$0", "$18", pangolin::DrawingModeDashed, pangolin::Colour::Blue(), "ground-truth accel bias z");
   }
 
   if (show_est_vel) {
-    plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine,
-                       pangolin::Colour::Red(), "estimated velocity x",
+    plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, pangolin::Colour::Red(), "estimated velocity x",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine,
-                       pangolin::Colour::Green(), "estimated velocity y",
+    plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, pangolin::Colour::Green(), "estimated velocity y",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine,
-                       pangolin::Colour::Blue(), "estimated velocity z",
+    plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, pangolin::Colour::Blue(), "estimated velocity z",
                        &vio_data_log);
   }
 
   if (show_est_pos) {
-    plotter->AddSeries("$0", "$4", pangolin::DrawingModeLine,
-                       pangolin::Colour::Red(), "estimated position x",
+    plotter->AddSeries("$0", "$4", pangolin::DrawingModeLine, pangolin::Colour::Red(), "estimated position x",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$5", pangolin::DrawingModeLine,
-                       pangolin::Colour::Green(), "estimated position y",
+    plotter->AddSeries("$0", "$5", pangolin::DrawingModeLine, pangolin::Colour::Green(), "estimated position y",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$6", pangolin::DrawingModeLine,
-                       pangolin::Colour::Blue(), "estimated position z",
+    plotter->AddSeries("$0", "$6", pangolin::DrawingModeLine, pangolin::Colour::Blue(), "estimated position z",
                        &vio_data_log);
   }
 
   if (show_est_bg) {
-    plotter->AddSeries("$0", "$7", pangolin::DrawingModeLine,
-                       pangolin::Colour::Red(), "estimated gyro bias x",
+    plotter->AddSeries("$0", "$7", pangolin::DrawingModeLine, pangolin::Colour::Red(), "estimated gyro bias x",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$8", pangolin::DrawingModeLine,
-                       pangolin::Colour::Green(), "estimated gyro bias y",
+    plotter->AddSeries("$0", "$8", pangolin::DrawingModeLine, pangolin::Colour::Green(), "estimated gyro bias y",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$9", pangolin::DrawingModeLine,
-                       pangolin::Colour::Blue(), "estimated gyro bias z",
+    plotter->AddSeries("$0", "$9", pangolin::DrawingModeLine, pangolin::Colour::Blue(), "estimated gyro bias z",
                        &vio_data_log);
   }
 
   if (show_est_ba) {
-    plotter->AddSeries("$0", "$10", pangolin::DrawingModeLine,
-                       pangolin::Colour::Red(), "estimated accel bias x",
+    plotter->AddSeries("$0", "$10", pangolin::DrawingModeLine, pangolin::Colour::Red(), "estimated accel bias x",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$11", pangolin::DrawingModeLine,
-                       pangolin::Colour::Green(), "estimated accel bias y",
+    plotter->AddSeries("$0", "$11", pangolin::DrawingModeLine, pangolin::Colour::Green(), "estimated accel bias y",
                        &vio_data_log);
-    plotter->AddSeries("$0", "$12", pangolin::DrawingModeLine,
-                       pangolin::Colour::Blue(), "estimated accel bias z",
+    plotter->AddSeries("$0", "$12", pangolin::DrawingModeLine, pangolin::Colour::Blue(), "estimated accel bias z",
                        &vio_data_log);
   }
 
   double t = kf_t_ns[show_frame] * 1e-9;
-  plotter->AddMarker(pangolin::Marker::Vertical, t, pangolin::Marker::Equal,
-                     pangolin::Colour::White());
+  plotter->AddMarker(pangolin::Marker::Vertical, t, pangolin::Marker::Equal, pangolin::Colour::White());
 }
 
 void setup_vio() {
@@ -709,9 +670,8 @@ void setup_vio() {
   basalt::VioConfig config;
   config.vio_debug = true;
 
-  vio.reset(new basalt::KeypointVioEstimator(
-      t_init_ns, T_w_i_init, vel_w_i_init, gt_gyro_bias.front(),
-      gt_accel_bias.front(), 0.0001, g, calib, config));
+  vio = basalt::VioEstimatorFactory::getVioEstimator(config, calib, g, true, true);
+  vio->initialize(t_init_ns, T_w_i_init, vel_w_i_init, gt_gyro_bias.front(), gt_accel_bias.front());
 
   vio->setMaxStates(10000);
   vio->setMaxKfs(10000);
@@ -733,13 +693,12 @@ bool next_step() {
 }
 
 void alignButton() {
-  Eigen::vector<Eigen::Vector3d> vio_t_w_i;
+  Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
 
   auto it = vis_map.find(kf_t_ns.back());
 
   if (it != vis_map.end()) {
-    for (const auto& t : it->second->states)
-      vio_t_w_i.emplace_back(t.translation());
+    for (const auto& [ts, t] : it->second->states) vio_t_w_i.emplace_back(t.translation());
 
   } else {
     std::cerr << "Could not find results!!" << std::endl;
