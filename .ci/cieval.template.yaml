@@ -6,7 +6,7 @@
 # For documentation on this file and the CI process, see .ci/README.md
 
 default:
-  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  image: registry.freedesktop.org/mateosss/basalt:nouriubuntu2404
 
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
@@ -58,20 +58,25 @@ build:
     - export DS_PATH=/$DS_DEV/$DS_REL_PATH
     - export DS_CONFIG=$(jq -r .configs.$DS_DEV .ci/evaluation.json)
     - export DS_CALIB=$(jq -r .calibs.$DS_DEV .ci/evaluation.json)
-    - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB
+    - export USE_MVS=$(jq -r '.value0["config.use_mvs"]' "$DS_CONFIG")
+    - export USE_VIDEO_FRAMES=$(jq -r '.value0["config.use_video_frames"]' "$DS_CONFIG")
+    - export USE_IMU=$(jq -r '.value0["config.use_imu"] | if . == null then false else . end' "$DS_CONFIG")
+    - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB, $USE_MVS, $USE_VIDEO_FRAMES, $USE_IMU
     - echo Runner variables $GET_DATASET_LOCKFILE
     - ls /msdmo /msdmi /msdmg /euroc /tumvi
-    - python3 -u .ci/get_dataset.py $DS_PATH /scratch --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
+    - python3 -u .ci/get_dataset.py $DS_PATH . --lock_file $GET_DATASET_LOCKFILE --config_path $DS_CONFIG --device $DS_DEV | tee get_dataset.log
     - export FINAL_DS_PATH=$(cat get_dataset.log | tail -n 1)
-    - echo $FINAL_DS_PATH | tee FINAL_DS_PATH.txt
+    - export VIDEO_PATH=$(grep "^VIDEO_PATH=" get_dataset.log | cut -d= -f2 || echo "")
     - echo $DS_PATH | tee DS_PATH.txt
+    - echo $FINAL_DS_PATH | tee FINAL_DS_PATH.txt
+    - echo $VIDEO_PATH | tee VIDEO_PATH.txt
     - ls
     - |
       set -euo pipefail
       for i in $(seq 1 $REPETITIONS)
       do
           echo "Run repetition $i / $REPETITIONS"
-          ./build/basalt_vio --save-times 1 --show-gui 0 --deterministic $DETERMINISTIC --num-threads $NUM_THREADS --dataset-path $FINAL_DS_PATH --dataset-type euroc --cam-calib $DS_CALIB --config-path $DS_CONFIG --save-trajectory euroc --save-trajectory-fn tracking.$DATASET.csv 2>&1 | tee output.$DATASET.log
+          ./build/basalt_vio --save-times 1 --show-gui 0 --deterministic $DETERMINISTIC --num-threads $NUM_THREADS --dataset-path $FINAL_DS_PATH ${{VIDEO_PATH:+--video-dataset-path $VIDEO_PATH}} --use-mvs $USE_MVS --use-video-frames $USE_VIDEO_FRAMES --use-imu $USE_IMU --dataset-type euroc --cam-calib $DS_CALIB --config-path $DS_CONFIG --save-trajectory euroc --save-trajectory-fn tracking.$DATASET.csv 2>&1 | tee output.$DATASET.log
           ls
           export RESDIR=$RESULTS_DIR/$CI_COMMIT_SHORT_SHA-$i/$DATASET
           echo "Results will be saved in $RESDIR"
@@ -79,6 +84,7 @@ build:
           mv tracking.$DATASET.csv $RESDIR/tracking.csv
           mv timing.tracking.$DATASET.csv $RESDIR/timing.csv
           mv stats_vio.json $RESDIR/stats_vio.json
+          mv stats_frontend.json $RESDIR/stats_frontend.json
           mv output.$DATASET.log $RESDIR/output.log
           tree $RESDIR
       done
@@ -87,7 +93,9 @@ build:
     - echo "Deleting dataset"
     - export FINAL_DS_PATH=$(cat FINAL_DS_PATH.txt)
     - export DS_PATH=$(cat DS_PATH.txt)
+    - export VIDEO_PATH=$(cat VIDEO_PATH.txt)
     - if [ "$FINAL_DS_PATH" != "$DS_PATH" ]; then echo "Deleting $FINAL_DS_PATH"; rm -rf $FINAL_DS_PATH; fi
+    - if [ -n "$VIDEO_PATH" ] && [ -d "$VIDEO_PATH" ]; then echo "Deleting video dataset at $VIDEO_PATH"; rm -rf "$VIDEO_PATH"; fi
   artifacts:
     paths:
       - $RESULTS_DIR

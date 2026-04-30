@@ -130,6 +130,7 @@ std::ostream& operator<<(std::ostream& os, const vit::TimeStats& s) {
 
 struct basalt_vio_ui : vis::VIOUIBase {
   VioDatasetPtr vio_dataset;
+  VioDatasetPtr vio_dataset_ui;
   int64_t start_t_ns = -1;
   size_t frame_count = 0;
 
@@ -240,6 +241,12 @@ struct basalt_vio_ui : vis::VIOUIBase {
     int num_threads = 0;
     bool use_imu = true;
     bool use_double = false;
+    // Introduce new flag for motion vectors
+    bool use_mvs = false;
+    // Introduce new flag for optional video dataset path
+    std::string video_dataset_path;
+    // Whether to use video frames instead of image frames for optical flow
+    bool use_video_frames = false;
 
     CLI::App app{"Basalt CLI"};
 
@@ -261,6 +268,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--use-double", use_double, "Use double not float.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
+    app.add_option("--use-mvs", use_mvs, "Use motion vectors for tracking guesses");
+    app.add_option("--video-dataset-path", video_dataset_path, "Optional path to video dataset if video set differes from image set.");
+    app.add_option("--use-video-frames", use_video_frames, "Whether to use video frames instead of image frames for optical flow.");
 
     try {
       app.parse(argc, argv);
@@ -305,8 +315,27 @@ struct basalt_vio_ui : vis::VIOUIBase {
       basalt::DatasetIoInterfacePtr dataset_io = basalt::DatasetIoFactory::getDatasetIo(dataset_type);
 
       dataset_io->read(dataset_path);
+      dataset_io->get_data()->use_mvs = use_mvs;
+      dataset_io->get_data()->use_video_frames = use_video_frames;
+      dataset_io->get_data()->video_dataset_path = video_dataset_path;
+
+      // FIXME: add support for other dataset types
+      if (use_mvs && dataset_type != "euroc") {
+        std::cout << "WARNING: --use-mvs is enabled but dataset type is '" << dataset_type 
+                  << "'. Motion vectors are only supported for dataset type 'euroc'. "
+                  << "The flag will be ignored and standard optical flow will be used." 
+                  << std::endl;
+      }
+
+      basalt::DatasetIoInterfacePtr dataset_io_ui = basalt::DatasetIoFactory::getDatasetIo(dataset_type);
+
+      dataset_io_ui->read(dataset_path);
+      dataset_io_ui->get_data()->use_mvs = false;
+      dataset_io_ui->get_data()->use_video_frames = use_video_frames;
+      dataset_io_ui->get_data()->video_dataset_path = video_dataset_path;
 
       vio_dataset = dataset_io->get_data();
+      vio_dataset_ui = dataset_io_ui->get_data();
       start_t_ns = vio_dataset->get_image_timestamps().front();
       frame_count = vio_dataset->get_image_timestamps().size();
 
@@ -591,7 +620,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
         if (show_frame.GuiChanged()) {
           auto frame_id = static_cast<size_t>(show_frame);
           int64_t timestamp = vio_dataset->get_image_timestamps()[frame_id];
-          std::vector<basalt::ImageData> img_vec = vio_dataset->get_image_data(timestamp);
+          std::vector<basalt::ImageData> img_vec = vio_dataset_ui->get_image_data(timestamp);
           for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
             pangolin::GlPixFormat fmt;
             fmt.glformat = GL_LUMINANCE;
@@ -928,6 +957,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_flow) do_show_flow(cam_id);
     if (show_highlights) do_show_highlights(cam_id);
     if (show_tracking_guess) do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_map);
+    if (show_fallback_guess) do_show_fallback_guess_vio(cam_id, show_frame, vio_dataset, vis_map);
+    if (show_motion_vectors) do_show_motion_vectors(cam_id);
+    if (show_macro_blocks) do_show_macro_blocks(cam_id);
     if (show_matching_guess) do_show_matching_guesses(cam_id);
     if (show_recall_guess) do_show_recall_guesses(cam_id);
     if (show_masks) do_show_masks(cam_id);

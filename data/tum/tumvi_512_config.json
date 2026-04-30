@@ -1,6 +1,7 @@
 {
     "value0": {
         "config.optical_flow_type": "frame_to_frame",
+        "config.optical_flow_subtype": "F2F_OF_FALLBACK_MV",
         "config.optical_flow_detection_grid_size": 40,
         "config.optical_flow_detection_num_points_cell": 1,
         "config.optical_flow_detection_min_threshold": 5,

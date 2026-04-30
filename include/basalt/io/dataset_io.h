@@ -66,10 +66,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace basalt {
 
+struct MotionVector {
+  int source;  // -1 for "past", +1 for "future"
+  int width, height;
+  float src_x, src_y;
+  float dst_x, dst_y;
+};
+
 struct ImageData {
   ImageData() : exposure(0) {}
 
   ManagedImage<uint16_t>::Ptr img;
+  std::vector<MotionVector> motion_vectors;
   double exposure;
 };
 
@@ -112,7 +120,7 @@ struct AprilgridCornersData {
 
 class VioDataset {
  public:
-  virtual ~VioDataset(){};
+  virtual ~VioDataset() {};
 
   virtual size_t get_num_cams() const = 0;
 
@@ -124,7 +132,11 @@ class VioDataset {
   virtual const Eigen::aligned_vector<Sophus::SE3d> &get_gt_pose_data() const = 0;
   virtual int64_t get_mocap_to_imu_offset_ns() const = 0;
   virtual std::vector<ImageData> get_image_data(int64_t t_ns) = 0;
-
+  bool use_mvs = false;
+  bool use_video_frames = false;
+  // Optional alternate root path for per-camera videos (e.g. generated data.mp4 files).
+  // Expected structure: <video_dataset_path>/mav0/camX/data.mp4
+  std::string video_dataset_path;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
@@ -136,7 +148,7 @@ class DatasetIoInterface {
   virtual void reset() = 0;
   virtual VioDatasetPtr get_data() = 0;
 
-  virtual ~DatasetIoInterface(){};
+  virtual ~DatasetIoInterface() {};
 };
 
 typedef std::shared_ptr<DatasetIoInterface> DatasetIoInterfacePtr;

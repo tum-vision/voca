@@ -48,6 +48,7 @@ namespace basalt {
 VioConfig::VioConfig() {
   // optical_flow_type = "patch";
   optical_flow_type = "frame_to_frame";
+  optical_flow_subtype = OpticalFlowSubtype::F2F_OF_FALLBACK_MV;
   optical_flow_detection_grid_size = 50;
   optical_flow_detection_num_points_cell = 1;
   optical_flow_detection_min_threshold = 5;
@@ -152,6 +153,27 @@ void VioConfig::load(const std::string& filename) {
 namespace cereal {
 
 template <class Archive>
+std::string save_minimal(const Archive& ar, const basalt::OpticalFlowSubtype& subtype) {
+  UNUSED(ar);
+  auto name = magic_enum::enum_name(subtype);
+  return std::string(name);
+}
+
+template <class Archive>
+void load_minimal(const Archive& ar, basalt::OpticalFlowSubtype& subtype, const std::string& name) {
+  UNUSED(ar);
+
+  auto subtype_enum = magic_enum::enum_cast<basalt::OpticalFlowSubtype>(name);
+
+  if (subtype_enum.has_value()) {
+    subtype = subtype_enum.value();
+  } else {
+    std::cerr << "Could not find the OpticalFlowSubtype for " << name << std::endl;
+    std::abort();
+  }
+}
+
+template <class Archive>
 std::string save_minimal(const Archive& ar, const basalt::MatchingGuessType& guess_type) {
   UNUSED(ar);
   auto name = magic_enum::enum_name(guess_type);
@@ -217,6 +239,7 @@ void load_minimal(const Archive& ar, basalt::LinearizationType& linearization_ty
 template <class Archive>
 void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_type));
+  ar(CEREAL_NVP(config.optical_flow_subtype));
   ar(CEREAL_NVP(config.optical_flow_detection_grid_size));
   ar(CEREAL_NVP(config.optical_flow_detection_num_points_cell));
   ar(CEREAL_NVP(config.optical_flow_detection_min_threshold));

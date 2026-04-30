@@ -42,6 +42,7 @@ namespace basalt {
 enum class LinearizationType { ABS_QR, ABS_SC, REL_SC };
 enum class MatchingGuessType { SAME_PIXEL, REPROJ_FIX_DEPTH, REPROJ_AVG_DEPTH };
 enum class KeyframeMargCriteria { KF_MARG_DEFAULT, KF_MARG_FORWARD_VECTOR };
+enum class OpticalFlowSubtype { F2F_OF_FALLBACK_MV, F2F_MV_FALLBACK_OF };
 
 struct VioConfig {
   VioConfig();
@@ -49,6 +50,7 @@ struct VioConfig {
   void save(const std::string& filename);
 
   std::string optical_flow_type;
+  OpticalFlowSubtype optical_flow_subtype;
   int optical_flow_detection_grid_size;
   int optical_flow_detection_num_points_cell;
   int optical_flow_detection_min_threshold;

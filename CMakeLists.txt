@@ -444,7 +444,7 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/io/dataset_io.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/nfr_mapper.cpp
   )
-  target_link_libraries(basalt_internal PRIVATE rosbag apriltag opengv)
+  target_link_libraries(basalt_internal PRIVATE rosbag apriltag mvextractor opengv)
 
 endif()
 

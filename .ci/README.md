@@ -95,8 +95,7 @@ check_interval = 0
       # We store ccache cache here
       "/storage/local/ssd/<user>/ccache:/ccache",
 
-      # We use set a scratchdir from the host filesystem (in a fast disk)
-      # because extracting big files into the docker filesystem is much slower.
+      # We may use set a scratchdir from the host filesystem and assume it lives on a fast disk
       "/storage/local/ssd/<user>/scratch:/scratch:rw",
 
       # xrtslam-metrics repo (read-only)

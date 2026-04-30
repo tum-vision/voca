@@ -209,8 +209,7 @@ create-evaluation:
   stage: evaluate
   when: manual
   variables:
-    EVALSETS: "quickset1"
-    # EVALSETS: "msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room"
+    EVALSETS: "msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room"
     DETERMINISTIC: "1"
     NUM_THREADS: "4"
     TIMING_EVALSETS: "EMH02,TR2,MOO02,MIO02,MGO02"

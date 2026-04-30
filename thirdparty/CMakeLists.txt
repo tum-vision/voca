@@ -13,6 +13,9 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   ignore_external_warnings(apriltag)
 endif()
 
+add_subdirectory(mvextractor EXCLUDE_FROM_ALL)
+ignore_external_warnings(mvextractor)
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Enable BUILD_SHARED_LIBS")
 set(BUILD_TESTS OFF CACHE BOOL "Enable BUILD_TESTS")
 set(BUILD_TOOLS OFF CACHE BOOL "Enable BUILD_TOOLS")
