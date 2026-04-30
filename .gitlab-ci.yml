@@ -212,9 +212,9 @@ create-evaluation:
     EVALSETS: "msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room"
     DETERMINISTIC: "1"
     NUM_THREADS: "4"
-    TIMING_EVALSETS: "EMH02,TR2,MOO02,MIO02,MGO02"
+    TIMING_EVALSETS: "MOO09"
     TIMING_DETERMINISTIC: "1"
-    TIMING_REPETITIONS: "3"
+    TIMING_REPETITIONS: "1"
     TIMING_NUM_THREADS: "0"
   script:
     - echo "Generating evaluation pipeline with the following arguments"

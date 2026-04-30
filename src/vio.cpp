@@ -275,7 +275,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     try {
       app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
-      return app.exit(e);
+      return app.exit(e); 
     }
 
     // global thread limit is in effect until global_control object is destroyed
@@ -287,6 +287,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     if (!config_path.empty()) {
       config.load(config_path);
+
+      std::cout << "Optical Flow Subtype: " << magic_enum::enum_name(config.optical_flow_subtype) << std::endl;
 
       if (config.vio_enforce_realtime) {
         config.vio_enforce_realtime = false;

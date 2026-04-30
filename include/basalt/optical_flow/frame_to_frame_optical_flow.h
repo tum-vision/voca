@@ -105,10 +105,13 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
   ExecutionStats frontend_stats{};
   std::map<int, int> guess_error_histogram{};
   std::map<FrameId, std::vector<int>> fallback_recovered_points{};
+  std::map<FrameId, std::vector<int>> consensus_mv_tracked{};
+  std::map<FrameId, std::vector<int>> consensus_of_tracked{};
+  std::map<FrameId, std::vector<int>> consensus_both_tracked{};
+  std::map<FrameId, std::vector<int>> consensus_both_agreed{};
+  std::map<FrameId, std::vector<std::vector<float>>> consensus_dist2_values{};
   mutable int64_t mv_total_tracking_time = 0;
-  mutable int64_t mv_total_tracked_points = 0;
   mutable int64_t of_total_tracking_time = 0;
-  mutable int64_t of_total_tracked_points = 0;
 
   FrameToFrameOpticalFlow(const VioConfig& conf, const Calibration<double>& cal)
       : OpticalFlowTyped<Scalar, Pattern>(conf, cal),
@@ -178,28 +181,65 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     }
     stats << "  },\n";
 
-    stats << "  \"fallback_recovered_points\": {\n";
-    int64_t fallback_recovered_points_total = 0;
-    for (auto it = fallback_recovered_points.begin(); it != fallback_recovered_points.end(); it++) {
-      auto& [frame_id, count_per_cam] = *it;
-      bool is_last = it == std::prev(fallback_recovered_points.end());
-
-      std::string count_string = "[";
-      for (size_t i = 0; i < count_per_cam.size(); i++) {
-        count_string.append(std::to_string(count_per_cam[i]));
-        fallback_recovered_points_total += count_per_cam[i];
-        if (i < count_per_cam.size() - 1) count_string.append(", ");
+    auto write_per_frame_int = [&](const char* name, const std::map<FrameId, std::vector<int>>& data) {
+      stats << "  \"" << name << "\": {\n";
+      for (auto it = data.begin(); it != data.end(); it++) {
+        auto& [frame_id, v] = *it;
+        bool is_last = it == std::prev(data.end());
+        std::string s = "[";
+        for (size_t j = 0; j < v.size(); j++) {
+          s.append(std::to_string(v[j]));
+          if (j < v.size() - 1) s.append(", ");
+        }
+        s.append("]");
+        stats << "    \"" << frame_id << "\": " << s << (is_last ? "" : ",") << "\n";
       }
-      count_string.append("]");
-      stats << "    \"" << frame_id << "\": " << count_string << (is_last ? "" : ",") << "\n";
+      stats << "  },\n";
+    };
+
+    write_per_frame_int("fallback_recovered_points", fallback_recovered_points);
+    write_per_frame_int("consensus_mv_tracked", consensus_mv_tracked);
+    write_per_frame_int("consensus_of_tracked", consensus_of_tracked);
+    write_per_frame_int("consensus_both_tracked", consensus_both_tracked);
+    write_per_frame_int("consensus_both_agreed", consensus_both_agreed);
+
+    auto percentile = [](std::vector<float>& sorted, float p) -> float {
+      if (sorted.empty()) return 0;
+      float idx = p * (sorted.size() - 1);
+      size_t lo = (size_t)idx;
+      size_t hi = lo + 1;
+      if (hi >= sorted.size()) return sorted.back();
+      float frac = idx - lo;
+      return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+    };
+
+    stats << "  \"consensus_dist2_stats\": {\n";
+    for (auto it = consensus_dist2_values.begin(); it != consensus_dist2_values.end(); it++) {
+      auto& [frame_id, per_cam] = *it;
+      bool is_last = it == std::prev(consensus_dist2_values.end());
+      stats << "    \"" << frame_id << "\": [";
+      for (size_t cam = 0; cam < per_cam.size(); cam++) {
+        auto vals = per_cam[cam];
+        std::sort(vals.begin(), vals.end());
+        float avg = 0;
+        for (float v : vals) avg += v;
+        avg = vals.empty() ? 0 : avg / vals.size();
+        float med = percentile(vals, 0.5f);
+        float p75 = percentile(vals, 0.75f);
+        float p90 = percentile(vals, 0.90f);
+        float p95 = percentile(vals, 0.95f);
+        float p99 = percentile(vals, 0.99f);
+        float max = vals.empty() ? 0 : vals.back();
+        stats << "{\"avg\": " << avg << ", \"median\": " << med
+              << ", \"p75\": " << p75 << ", \"p90\": " << p90 << ", \"p95\": " << p95 << ", \"p99\": " << p99 << ", \"max\": " << max << "}";
+        if (cam < per_cam.size() - 1) stats << ", ";
+      }
+      stats << "]" << (is_last ? "" : ",") << "\n";
     }
     stats << "  },\n";
 
-    stats << "  \"fallback_recovered_points_total\": " << fallback_recovered_points_total << ",\n";
     stats << "  \"mv_total_tracking_time\": " << mv_total_tracking_time << ",\n";
-    stats << "  \"mv_total_tracked_points\": " << mv_total_tracked_points << ",\n";
-    stats << "  \"of_total_tracking_time\": " << of_total_tracking_time << ",\n";
-    stats << "  \"of_total_tracked_points\": " << of_total_tracked_points << "\n";
+    stats << "  \"of_total_tracking_time\": " << of_total_tracking_time << "\n";
     stats << "}\n";
   }
 
@@ -305,6 +345,81 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     return after_count - before_count;
   }
 
+  int trackMVOFConsensus(const OpticalFlowResult::Ptr& new_transforms, size_t i,
+                         const OpticalFlowInput::Ptr& new_img_vec, const SE3& T_c1_c2) {
+    // Pass 1: MV-initialized OF on all keypoints
+    Keypoints mv_kps{}, mv_guesses{};
+    set_guesses_from_motion_vector(transforms->keypoints[i],
+                                   new_img_vec->img_data[i].motion_vectors, mv_guesses);
+    trackPoints(old_pyramid->at(i), pyramid->at(i),
+                transforms->keypoints[i], mv_kps, mv_guesses,
+                new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i, i, true);
+
+    // Pass 2: Plain OF fallback on points that failed MV tracking
+    Keypoints lost_kps{};
+    for (const auto& [kpid, kp] : transforms->keypoints[i])
+      if (mv_kps.count(kpid) == 0) lost_kps[kpid] = kp;
+
+    Keypoints lost_guesses{};
+    trackPoints(old_pyramid->at(i), pyramid->at(i),
+                lost_kps, mv_kps, lost_guesses,
+                new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i, i, false);
+
+    // Pass 3: Plain OF on points that succeeded in pass 1 (for consensus check)
+    Keypoints mv_succeeded{};
+    for (const auto& [kpid, kp] : transforms->keypoints[i])
+      if (mv_kps.count(kpid) > 0 && lost_kps.count(kpid) == 0) mv_succeeded[kpid] = kp;
+
+    Keypoints of_kps{}, of_guesses{};
+    trackPoints(old_pyramid->at(i), pyramid->at(i),
+                mv_succeeded, of_kps, of_guesses,
+                new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i, i, false);
+
+    // --- Fallback-recovered points: keep unconditionally (comment out block to disable) ---
+    for (const auto& [kpid, kp] : mv_kps) {
+      if (lost_kps.count(kpid) > 0) {
+        new_transforms->keypoints[i][kpid] = kp;
+        new_transforms->tracking_guesses[i][kpid] = lost_guesses.count(kpid) ? lost_guesses[kpid] : kp;
+      }
+    }
+
+    int mv_pass1_count = mv_kps.size() - lost_kps.size();  // MV-OF successes before fallback added to mv_kps
+    // Count fallback recoveries: points from lost_kps that ended up in mv_kps after pass 2
+    int fallback_recovered = 0;
+    for (const auto& [kpid, _] : lost_kps)
+      if (mv_kps.count(kpid) > 0) fallback_recovered++;
+
+    // --- Consensus: check agreement only when both MV-OF and plain OF succeeded ---
+    float tol2 = config.optical_flow_consensus_tolerance * config.optical_flow_consensus_tolerance;
+    int both_tracked = 0, both_agreed = 0;
+    std::vector<float> dist2_vals;
+    for (const auto& [kpid, mv_kp] : mv_kps) {
+      if (lost_kps.count(kpid) > 0) continue;  // already handled by fallback above
+      auto it = of_kps.find(kpid);
+      if (it != of_kps.end()) {
+        // Both succeeded
+        both_tracked++;
+        float dist2 = (mv_kp.translation() - it->second.translation()).squaredNorm();
+        dist2_vals.push_back(dist2);
+        if (dist2 <= tol2) {
+          new_transforms->keypoints[i][kpid] = mv_kp;
+          new_transforms->tracking_guesses[i][kpid] = mv_guesses.count(kpid) ? mv_guesses[kpid] : mv_kp;
+          both_agreed++;
+        }
+      } else {
+        // MV-OF succeeded but plain OF failed — keep MV result
+        new_transforms->keypoints[i][kpid] = mv_kp;
+        new_transforms->tracking_guesses[i][kpid] = mv_guesses.count(kpid) ? mv_guesses[kpid] : mv_kp;
+      }
+    }
+    consensus_mv_tracked[frame_counter][i] += mv_pass1_count;
+    consensus_of_tracked[frame_counter][i] += fallback_recovered + (int)of_kps.size();
+    consensus_both_tracked[frame_counter][i] += both_tracked;
+    consensus_both_agreed[frame_counter][i] += both_agreed;
+    consensus_dist2_values[frame_counter][i] = std::move(dist2_vals);
+    return both_agreed + fallback_recovered;
+  }
+
   void processFrame(int64_t curr_t_ns, OpticalFlowInput::Ptr& new_img_vec) {
     for (const auto& v : new_img_vec->img_data) {
       if (!v.img.get()) return;
@@ -364,6 +479,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       new_transforms->matching_guesses.resize(num_cams);
       new_transforms->recall_guesses.resize(num_cams);
       fallback_recovered_points[frame_counter].resize(num_cams);
+      consensus_mv_tracked[frame_counter].resize(num_cams);
+      consensus_of_tracked[frame_counter].resize(num_cams);
+      consensus_both_tracked[frame_counter].resize(num_cams);
+      consensus_both_agreed[frame_counter].resize(num_cams);
+      consensus_dist2_values[frame_counter].resize(num_cams);
       new_transforms->t_ns = t_ns;
 
       SE3 T_i1 = latest_state->T_w_i.template cast<Scalar>();
@@ -380,6 +500,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
             fallback_count = trackMotionVectorsFallbackOpticalFlow(new_transforms, i, new_img_vec, T_c1_c2);
           } else if (config.optical_flow_subtype == OpticalFlowSubtype::F2F_OF_FALLBACK_MV) {
             fallback_count = trackOpticalFlowFallbackMotionVectors(new_transforms, i, new_img_vec, T_c1_c2);
+          } else if (config.optical_flow_subtype == OpticalFlowSubtype::OF_MVOF_CONSENSUS) {
+            fallback_count = trackMVOFConsensus(new_transforms, i, new_img_vec, T_c1_c2);
           } else {
             BASALT_ASSERT_MSG(false, "Unknown optical flow subtype");
           }
@@ -460,7 +582,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
                    const Masks& masks1, const Masks& masks2, const SE3& T_c1_c2, size_t cam1, size_t cam2,
                    bool has_mvs) const {
     size_t num_points = keypoint_map_1.size();
-    size_t existing_points = keypoint_map_2.size();
 
     std::vector<KeypointId> ids;
     Eigen::aligned_vector<Keypoint> init_vec;
@@ -552,10 +673,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     if (tracking) {
       if (has_mvs) {
         mv_total_tracking_time += out_ns - in_ns;
-        mv_total_tracked_points += keypoint_map_2.size() - existing_points;
       } else {
         of_total_tracking_time += out_ns - in_ns;
-        of_total_tracked_points += keypoint_map_2.size() - existing_points;
       }
     }
   }

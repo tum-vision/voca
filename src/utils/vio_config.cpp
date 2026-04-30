@@ -55,6 +55,7 @@ VioConfig::VioConfig() {
   optical_flow_detection_max_threshold = 40;
   optical_flow_detection_nonoverlap = true;
   optical_flow_max_recovered_dist2 = 0.04f;
+  optical_flow_consensus_tolerance = 0.25f;
   optical_flow_pattern = 51;
   optical_flow_max_iterations = 5;
   optical_flow_levels = 3;
@@ -246,6 +247,7 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_detection_max_threshold));
   ar(CEREAL_NVP(config.optical_flow_detection_nonoverlap));
   ar(CEREAL_NVP(config.optical_flow_max_recovered_dist2));
+  ar(CEREAL_NVP(config.optical_flow_consensus_tolerance));
   ar(CEREAL_NVP(config.optical_flow_pattern));
   ar(CEREAL_NVP(config.optical_flow_max_iterations));
   ar(CEREAL_NVP(config.optical_flow_epipolar_error));

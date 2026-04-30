@@ -117,6 +117,7 @@
     "msdmipp": [ "MIPP01", "MIPP02", "MIPP03", "MIPP04", "MIPP05", "MIPP06" ],
     "msdmipt": [ "MIPT01", "MIPT02", "MIPT03" ],
     "quickset0": [ "MIO11", "MOO11", "MGO11", "MOO09" ],
-    "quickset1": [ "MIO06", "MOO06", "MGO06", "MIPB01", "TR2", "TR5", "EMH01", "EMH03" ]
+    "quickset1": [ "MIO06", "MOO06", "MGO06", "MIPB01", "TR2", "TR5", "EMH01", "EMH03" ],
+    "quickset2": [ "MIO06", "MOO06", "MGO06", "MIPB01", "TR2", "TR3", "TR5", "EMH01", "EMH03"]
   }
 }
