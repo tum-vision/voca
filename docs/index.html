@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VOCA: Visual Odometry with Codec Awareness</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0D0F14;
+      --surface:   #1A1E28;
+      --border:    #252A38;
+      --accent:    #00C9A7;
+      --accent-dim:#007B67;
+      --mauve:     #8B7FA8;
+      --text:      #E8EDF5;
+      --muted:     #5A6070;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Codec block canvas ── */
+    #codec-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      opacity: 0.55;
+    }
+
+    /* ── Centered layout ── */
+    .stage {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    /* ── Venue pill ── */
+    .venue {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--mauve);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.85rem;
+      border-radius: 2px;
+      margin-bottom: 2.2rem;
+    }
+    .venue-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: blink 2.4s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.2; }
+    }
+
+    /* ── Title ── */
+    h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(2rem, 6vw, 4rem);
+      font-weight: 700;
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      max-width: 780px;
+    }
+    h1 .accent { color: var(--accent); }
+
+    /* ── Subtitle ── */
+    .subtitle {
+      margin-top: 1.1rem;
+      font-size: clamp(0.85rem, 2vw, 1rem);
+      color: var(--mauve);
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      max-width: 560px;
+    }
+
+    /* ── Divider ── */
+    .divider {
+      width: 40px;
+      height: 1px;
+      background: var(--accent-dim);
+      margin: 2.4rem auto;
+    }
+
+    /* ── Status message ── */
+    .status {
+      font-size: 0.95rem;
+      color: var(--muted);
+      max-width: 460px;
+      line-height: 1.65;
+    }
+    .status strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* ── Links row ── */
+    .links {
+      margin-top: 2.8rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .link-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 1.1rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-decoration: none;
+      border-radius: 2px;
+      cursor: not-allowed;
+      opacity: 0.55;
+      transition: opacity 0.2s;
+      user-select: none;
+    }
+    .link-btn svg { flex-shrink: 0; }
+    .link-btn .tag {
+      font-size: 0.62rem;
+      color: var(--accent-dim);
+      border: 1px solid var(--accent-dim);
+      padding: 0.1rem 0.35rem;
+      border-radius: 2px;
+      margin-left: 0.2rem;
+    }
+
+    /* ── Footer ── */
+    footer {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 0.7rem;
+      color: var(--border);
+      letter-spacing: 0.08em;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .venue-dot { animation: none; opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="codec-canvas"></canvas>
+
+<main class="stage">
+  <div class="venue">
+    <span class="venue-dot"></span>
+    ECCV 2026
+  </div>
+
+  <h1>
+    <span class="accent">VOCA</span><br/>
+    Visual Odometry with<br/>Codec Awareness
+  </h1>
+
+  <p class="subtitle">
+    Causal stereo visual odometry that exploits codec metadata<br/>
+    to improve tracking under lossy video compression.
+  </p>
+
+  <div class="divider"></div>
+
+  <p class="status">
+    The project page is <strong>coming soon</strong>.<br/>
+    Code, ablations, and results will be uploaded here upon paper release.
+  </p>
+
+  <div class="links">
+    <span class="link-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Paper
+      <span class="tag">soon</span>
+    </span>
+    <span class="link-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>
+      Project Page
+      <span class="tag">soon</span>
+    </span>
+    <span class="link-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+      Code
+      <span class="tag">soon</span>
+    </span>
+  </div>
+</main>
+
+<footer>Visual Odometry &nbsp;·&nbsp; KLT Tracking &nbsp;·&nbsp; Compressed Video</footer>
+
+<script>
+  // ── Codec macroblock grid animation ──
+  // Simulates the pulsing luminance/chrominance block structure
+  // seen in video codec internals — the paper's core subject.
+
+  const canvas = document.getElementById('codec-canvas');
+  const ctx    = canvas.getContext('2d');
+
+  const BLOCK  = 28;    // macroblock size (px)
+  const ACCENT = [0, 201, 167];
+  const MAUVE  = [139, 127, 168];
+
+  let cols, rows, blocks, W, H;
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cols = Math.ceil(W / BLOCK) + 1;
+    rows = Math.ceil(H / BLOCK) + 1;
+    initBlocks();
+  }
+
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+
+  function initBlocks() {
+    blocks = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        blocks.push({
+          x: c * BLOCK,
+          y: r * BLOCK,
+          phase:    rand(0, Math.PI * 2),
+          speed:    rand(0.003, 0.012),
+          palette:  Math.random() < 0.15 ? 1 : 0,  // occasional mauve
+          maxAlpha: rand(0.03, 0.22),
+        });
+      }
+    }
+  }
+
+  let t = 0;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    for (const b of blocks) {
+      const v = (Math.sin(t * b.speed + b.phase) + 1) / 2;
+      const a = v * b.maxAlpha;
+      const [r, g, bl] = b.palette === 1 ? MAUVE : ACCENT;
+      ctx.fillStyle = `rgba(${r},${g},${bl},${a})`;
+      ctx.fillRect(b.x + 0.5, b.y + 0.5, BLOCK - 1, BLOCK - 1);
+    }
+
+    // Subtle grid lines
+    ctx.strokeStyle = 'rgba(37,42,56,0.6)';
+    ctx.lineWidth   = 0.5;
+    for (let c = 0; c <= cols; c++) {
+      ctx.beginPath();
+      ctx.moveTo(c * BLOCK, 0);
+      ctx.lineTo(c * BLOCK, H);
+      ctx.stroke();
+    }
+    for (let r = 0; r <= rows; r++) {
+      ctx.beginPath();
+      ctx.moveTo(0, r * BLOCK);
+      ctx.lineTo(W, r * BLOCK);
+      ctx.stroke();
+    }
+
+    t++;
+    requestAnimationFrame(draw);
+  }
+
+  // Respect prefers-reduced-motion
+  const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  window.addEventListener('resize', resize);
+  resize();
+
+  if (!mq.matches) {
+    draw();
+  } else {
+    // Static single-frame render
+    t = Math.random() * 1000;
+    draw();
+    cancelAnimationFrame(draw);
+  }
+</script>
+
+</body>
+</html>
