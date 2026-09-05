@@ -23,11 +23,7 @@
   <a href="https://tum-vision.github.io/voca"><strong>Project Page</strong></a>
 </p>
 
-<!-- Add an H.264 MP4 at docs/assets/voca-teaser.mp4 to populate this player. -->
-<video controls autoplay muted loop playsinline width="100%">
-  <source src="docs/assets/voca-teaser.mp4" type="video/mp4">
-  Your browser does not support embedded videos.
-</video>
+<img src="docs/assets/voca-teaser.gif" alt="VOCA teaser" width="100%">
 
 </div>
 
