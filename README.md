@@ -67,16 +67,14 @@ sudo apt-get update
 ./scripts/install_deps.sh
 ```
 
-Build the standalone VOCA executable and its visualization UI:
+Build VOCA using `release` for the optimized standalone executable and visualization UI, `development` for the same targets with debug symbols, or `library` for only `libbasalt.so`:
 
 ```bash
-cmake --preset release
-cmake --build build --target basalt_vio --parallel 4
+cmake --preset release # Replace with "development" or "library" as needed.
+cmake --build build --parallel 4
 ```
 
-Use the `development` preset instead of `release` when debug symbols are needed. The `library` preset only builds `libbasalt.so` and does not build the standalone executable or UI.
-
-Verify the installation:
+For a standalone build, verify the installation:
 
 ```bash
 ./build/basalt_vio --help
