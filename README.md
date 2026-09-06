@@ -21,9 +21,11 @@
   <a href="https://arxiv.org/abs/2607.00189"><strong>Paper</strong></a>
   &nbsp;|&nbsp;
   <a href="https://tum-vision.github.io/voca"><strong>Project Page</strong></a>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/tum-vision/voca"><strong>Code</strong></a>
 </p>
 
-<img src="docs/assets/voca-teaser.gif" alt="VOCA teaser" width="100%">
+<img src="docs/assets/voca-teaser.gif" alt="VOCA teaser" width="100%" href="https://www.youtube.com/watch?v=0uslXwlNcSw" />
 
 </div>
 
@@ -33,17 +35,6 @@
 ## 📋 Abstract
 
 Camera pose estimation from image streams is a critical component of spatial world models that integrate perception for planning and decision making. Nearly all visual odometry (VO) and SLAM systems have focused on datasets containing raw and uncompressed videos. Many working systems, instead, use ubiquitous hardware units to compress and decode video streams efficiently, saving orders of magnitude in space and bandwidth. However, this lossy compression introduces visual artifacts that hinder the performance of traditional tracking systems. In this work, we present VOCA, a causal stereo visual-odometry method that exploits codec information to improve tracking performance. We achieve state-of-the-art performance on causal VO for relative trajectory error, efficiency, and absolute trajectory error on compressed streams.
-
-
-## 📌 Release Status
-
-- [X] [Paper (arXiv)](https://arxiv.org/abs/2607.00189)
-- [ ] Code
-- [ ] Ablations
-- [ ] Evaluation results
-
-
-
 
 ## 📚 BibTeX
 If you find our work useful, please consider citing our paper:
@@ -63,6 +54,5 @@ Council (ERC) Advanced Grant SIMULACRON, by the DFG project CR 250/26-
 for Machine Learning.
 
 Our work builds on the [Basalt codebase](https://github.com/VladyslavUsenko/basalt)
-and the newer implementation described in the
-[Monado SLAM Dataset paper](https://arxiv.org/pdf/2508.00088). We also use the
-[Monado SLAM Dataset](https://huggingface.co/datasets/collabora/monado-slam-datasets).
+and the [newer implementation](https://gitlab.freedesktop.org/mateosss/basalt) described in the
+[Monado SLAM Dataset paper](https://arxiv.org/pdf/2508.00088).
