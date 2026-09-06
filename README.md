@@ -49,7 +49,7 @@ Camera pose estimation from image streams is a critical component of spatial wor
 
 ## 🛠️ Installation
 
-The evaluation CI uses Ubuntu 24.04, which is the recommended platform. VOCA requires CMake 3.27 or newer.
+Ubuntu 24.04 is the recommended platform. VOCA requires CMake 3.27 or newer.
 
 Clone the repository together with all submodules:
 
@@ -203,60 +203,9 @@ All four variants use compressed video frames and visual-only odometry:
 "config.use_imu": false
 ```
 
-## ⚙️ Evaluation CI
+## ⚙️ Evaluation
 
-<details>
-<summary><strong>Reproducing our GitLab evaluation setup</strong></summary>
-
-
-The complete runner configuration is documented in [`.ci/README.md`](.ci/README.md). The setup uses one GitLab Runner with the Docker executor and the tag `basalt-evaluation-box`.
-
-The runner needs:
-
-- Docker access
-- Writable `/scratch` and `/ccache` mounts
-- Dataset mounts at `/euroc`, `/tumvi`, `/msdmo`, `/msdmi`, and `/msdmg`
-- The [`xrtslam-metrics`](https://gitlab.freedesktop.org/mateosss/xrtslam-metrics) repository mounted at `/xrtmet`
-- The codec-enabled image `registry.freedesktop.org/mateosss/basalt:nouriubuntu2404`
-
-Create the `xrtslam-metrics` environment once with a writable mount:
-
-```bash
-docker run \
-  -v /path/to/xrtslam-metrics:/xrtmet:rw \
-  --rm \
-  -it \
-  registry.freedesktop.org/mateosss/basalt:ubuntu2404 \
-  bash
-
-cd /xrtmet
-python3.12 -m venv .venv-docker
-source .venv-docker/bin/activate
-pip install poetry
-poetry update
-```
-
-A small downstream pipeline can be generated locally with:
-
-```bash
-python3 .ci/cievalgen.py \
-  --deterministic 1 \
-  --num_threads 4 \
-  --timing_deterministic 1 \
-  --timing_repetitions 1 \
-  --timing_num_threads 0 \
-  .ci/evaluation.json \
-  quickset0 \
-  MOO09 \
-  .ci/cieval.template.yaml \
-  /tmp/cieval.yaml
-```
-
-In GitLab, start the manual `create-evaluation` job. Evaluation sets and timing settings can be changed through `EVALSETS`, `TIMING_EVALSETS`, `NUM_THREADS`, and the related variables in [`.gitlab-ci.yml`](.gitlab-ci.yml).
-
-The downstream pipeline builds `basalt_vio`, prepares the compressed videos, evaluates the selected sequences, and produces `results.zip` and `timing-results.zip`. The parent pipeline then creates the metrics report with `xrtslam-metrics`.
-
-</details>
+Instructions for reproducing the evaluation and generating metrics with [`xrtslam-metrics`](https://gitlab.freedesktop.org/mateosss/xrtslam-metrics) are available in [`.ci/README.md`](.ci/README.md).
 
 
 ## 📊 Visualization
