@@ -58,7 +58,7 @@ Camera pose estimation from image streams is a critical component of spatial wor
 
 ## 🛠️ Installation
 
-The evaluation CI uses Ubuntu 24.04, which is the recommended platform. VOCA requires CMake 3.27 or newer because the bundled motion vector extractor uses that minimum version.
+The evaluation CI uses Ubuntu 24.04, which is the recommended platform. VOCA requires CMake 3.27 or newer.
 
 Clone the repository together with all submodules:
 
@@ -67,7 +67,7 @@ git clone --recursive https://github.com/tum-vision/voca.git
 cd voca
 ```
 
-Install the system dependencies. The script supports Homebrew on macOS, DNF on Fedora, and APT on Ubuntu and Debian:
+Install the system dependencies. The script has only been tested on Ubuntu 24.04. Package mappings for Homebrew on macOS, DNF on Fedora, and APT on Debian are also provided but remain untested:
 
 ```bash
 # Required before the first installation on Ubuntu and Debian
@@ -75,8 +75,6 @@ sudo apt-get update
 
 ./scripts/install_deps.sh
 ```
-
-The Fedora packages provide the libraries required to build and decode videos. Reproducing the exact paper encoding additionally requires an FFmpeg build that exposes the `libx264` encoder. 
 
 Build the standalone VOCA executable and its visualization UI:
 
