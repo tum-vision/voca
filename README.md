@@ -58,7 +58,7 @@ git clone --recursive https://github.com/tum-vision/voca.git
 cd voca
 ```
 
-Install the system dependencies. The script has only been tested on Ubuntu 24.04. Package mappings for Homebrew on macOS, DNF on Fedora, and APT on Debian are also provided but remain untested:
+Install the system dependencies. The script has only been tested on Ubuntu 24.04:
 
 ```bash
 # Required before the first installation on Ubuntu and Debian
@@ -84,7 +84,7 @@ ffmpeg -hide_banner -encoders | grep libx264
 
 ## 🗂️ Datasets and Configurations
 
-The paper evaluation uses the following configuration and calibration files. All datasets are presented to VOCA in the EuRoC directory layout and use `--dataset-type euroc`.
+For the paper evaluation, VOCA uses EuRoC metadata but reads camera frames from H.264 videos instead of the standard image folders. Each camera sequence is encoded with FFmpeg to `<video-dataset>/mav0/cam*/data.mp4`. VOCA expects data to follow the EuRoC directory structure and uses the corresponding configuration and calibration files listed below.
 
 | Dataset | Device name | Configuration | Calibration |
 |---|---|---|---|
@@ -98,62 +98,45 @@ The mapping between sequence names, device names, configurations, calibrations, 
 
 ### Run Data
 
-The evaluation run data can be downloaded from [LRZ Sync+Share](https://syncandshare.lrz.de/getlink/fiLDC6W1bSxx1WdKcPLJZe/VOCA). The `mvofckf` directory contains the results for the version presented in the paper.
+The evaluation run data from the paper can be downloaded from [here](https://syncandshare.lrz.de/getlink/fiLDC6W1bSxx1WdKcPLJZe/VOCA). The `mvofckf` directory contains the results for the VOCA ablation presented in the paper.
 
 
 ## 🎞️ Video Encoding and Decoding
 
-VOCA expects one H.264 video per camera at the following locations:
+Use [`.ci/get_dataset.py`](.ci/get_dataset.py) to encode the camera images with FFmpeg. Following the paper configuration, the helper uses two-pass `libx264` encoding at 500 kbit/s and 30 fps, with `yuv420p` output and no audio, with the following x264 options:
 
 ```text
-<video-dataset>/mav0/cam0/data.mp4
-<video-dataset>/mav0/cam1/data.mp4
+partitions=p8x8,p4x4,i8x8:keyint=1000:me=umh:merange=64:subme=6:bframes=0:ref=1
 ```
 
-The main paper configuration uses:
-
-- `libx264`
-- Two-pass encoding
-- A target bitrate of 500 kbit/s
-- 30 frames per second
-- `yuv420p`
-- No audio
-- `partitions=p8x8,p4x4,i8x8:keyint=1000:me=umh:merange=64:subme=6:bframes=0:ref=1`
-
-These settings are defined in each dataset configuration listed above. The pixel format defaults to `yuv420p` in [`.ci/get_dataset.py`](.ci/get_dataset.py).
-
-Use the dataset preparation helper so that frames follow `data.csv` order and stereo timestamps remain consistent. Select the configuration and device name from the table above. For EuRoC, run:
+To encode the EuRoC `MH_01_easy` sequence:
 
 ```bash
 DATASET=/path/to/MH_01_easy
-WORKDIR=/path/to/fast-working-directory
+WORKDIR=/path/to/working-directory
 CONFIG=data/euroc/euroc_config_vo.json
-DEVICE=euroc
 
 mkdir -p "$WORKDIR"
 
-python3 -u .ci/get_dataset.py \
+python3 .ci/get_dataset.py \
   "$DATASET" \
   "$WORKDIR" \
   --config_path "$CONFIG" \
-  --device "$DEVICE"
+  --device euroc
 ```
 
-If the dataset is stored as an archive, pass the archive path without the `.zip` suffix. Generated videos are written to:
+Encoded videos are written to:
 
 ```text
-<WORKDIR>/videos/<DEVICE>/<SEQUENCE>/mav0/cam*/data.mp4
+$WORKDIR/videos/euroc/MH_01_easy/mav0/cam0/data.mp4
+$WORKDIR/videos/euroc/MH_01_easy/mav0/cam1/data.mp4
 ```
 
-The script prints `VIDEO_PATH=<path>` followed by the final dataset path on its last line. The final dataset path can differ from the original path when camera timestamps need to be filtered to their shared timestamps.
-
-No separate decoding step is needed. VOCA decodes compressed frames internally through OpenCV. When motion vectors are enabled, the FFmpeg decoder also exports codec motion vectors through frame side data.
-
-A paper-style EuRoC can be executed like this:
+The following example runs VOCA's motion-vector/optical-flow consensus method (`OF_MVOF_CONSENSUS`) with motion-vector extraction enabled via `--use-mvs 1`:
 
 ```bash
-DATASET=/path/to/dataset/files
-VIDEO_DATASET=/path/to/compressed/video/frames
+DATASET=/path/to/MH_01_easy
+VIDEO_DATASET=/path/to/working-directory/videos/euroc/MH_01_easy
 CONFIG=data/euroc/euroc_config_vo.json
 CALIB=data/euroc/euroc_ds_calib.json
 
@@ -166,20 +149,14 @@ CALIB=data/euroc/euroc_ds_calib.json
   --use-video-frames 1 \
   --use-mvs 1 \
   --use-imu 0 \
-  --deterministic 1 \
-  --num-threads 4 \
   --show-gui 0 \
-  --save-times 1 \
   --save-trajectory euroc \
   --save-trajectory-fn tracking.csv
 ```
 
-`--dataset-path` supplies timestamps, metadata, IMU data, and ground truth. `--video-dataset-path` supplies the compressed camera streams and may point to a different root.
-
-
 ## 🧪 Ablations
 
-The current code supports all four paper variants through the dataset configuration and the `--use-mvs` runtime option.
+The current code supports all four paper variants through dataset configuration and the `--use-mvs` runtime option.
 
 | Variant | Paper tag | `config.use_mvs` | `config.optical_flow_subtype` | Runtime option | Tracking order |
 |---|---|---:|---|---|---|
@@ -201,9 +178,9 @@ All four variants use compressed video frames and visual-only odometry:
 "config.use_imu": false
 ```
 
-## ⚙️ Evaluation
+## ⚙️ Evaluation CI
 
-Instructions for reproducing the evaluation and generating metrics with [`xrtslam-metrics`](https://gitlab.freedesktop.org/mateosss/xrtslam-metrics) are available in [`.ci/README.md`](.ci/README.md).
+See [`.ci/README.md`](.ci/README.md) for instructions on reproducing the CI evaluation and generating metrics with [`xrtslam-metrics`](https://gitlab.freedesktop.org/mateosss/xrtslam-metrics).
 
 
 ## 📊 Visualization
@@ -226,10 +203,10 @@ Start the UI by changing the run command to:
   --step-by-step 1
 ```
 
-The window contains the stereo camera views, the estimated 3D trajectory, and diagnostic plots. Open **Features Menu** to enable the codec visualizations:
+The visualization contains stereo camera views, the estimated 3D trajectory, and diagnostic plots. Open the **Features Menu** to enable the codec visualizations:
 
 - **show_motion_vectors** draws motion vectors from codec source positions to destination positions.
-- **show_macro_blocks** draws translucent codec block rectangles with colored outlines based on the reference direction.
+- **show_macro_blocks** draws codec block partitions onto each frame.
 
 Both overlays require encoded `data.mp4` files and `--use-mvs 1`. The first encoded frame is normally an I-frame and has no motion vectors. Advance to a P-frame before checking the overlays.
 
