@@ -4,55 +4,74 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VOCA: Visual Odometry with Codec Awareness</title>
+  <meta name="description" content="VOCA is a causal stereo visual-odometry method that exploits video-codec information (motion vectors, I-frame structure) to track reliably on compressed video. ECCV 2026 Spotlight." />
+
+  <!-- Open Graph / social -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="VOCA: Visual Odometry with Codec Awareness" />
+  <meta property="og:description" content="Causal stereo visual odometry that exploits codec metadata to track reliably under lossy video compression. ECCV 2026 Spotlight." />
+  <meta property="og:url" content="https://tum-vision.github.io/voca/" />
+  <meta property="og:image" content="https://tum-vision.github.io/voca/assets/fig-trajectories.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
       --bg:        #0D0F14;
       --surface:   #1A1E28;
+      --surface-2: #141821;
       --border:    #252A38;
       --accent:    #00C9A7;
       --accent-dim:#007B67;
       --mauve:     #8B7FA8;
       --text:      #E8EDF5;
+      --text-dim:  #AEB6C6;
       --muted:     #5A6070;
+      --maxw:      1080px;
     }
 
-    html, body {
-      height: 100%;
+    html { scroll-behavior: smooth; }
+    body {
       background: var(--bg);
       color: var(--text);
-      font-family: 'Inter', sans-serif;
-      overflow: hidden;
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Codec block canvas ── */
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 1.5rem; }
+    .prose { max-width: 760px; margin-left: auto; margin-right: auto; }
+    .prose p + p { margin-top: 1rem; }
+
+    h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; line-height: 1.15; }
+
+    /* ── Hero ── */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      border-bottom: 1px solid var(--border);
+      padding: 4.5rem 1.5rem 3rem;
+      text-align: center;
+    }
     #codec-canvas {
-      position: fixed;
+      position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       z-index: 0;
-      opacity: 0.55;
+      opacity: 0.5;
+      -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+      mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
     }
+    .hero > * { position: relative; z-index: 1; }
 
-    /* ── Centered layout ── */
-    .stage {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 2rem;
-      text-align: center;
-    }
-
-    /* ── Venue pill ── */
     .venue {
       display: inline-flex;
       align-items: center;
@@ -67,247 +86,635 @@
       text-transform: uppercase;
       padding: 0.35rem 0.85rem;
       border-radius: 2px;
-      margin-bottom: 2.2rem;
+      margin-bottom: 1.8rem;
     }
-    .venue-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      animation: blink 2.4s ease-in-out infinite;
-    }
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.2; }
-    }
+    .venue .star { color: var(--accent); }
 
-    /* ── Title ── */
     h1 {
-      font-family: 'Space Grotesk', sans-serif;
-      font-size: clamp(2rem, 6vw, 4rem);
+      font-size: clamp(2.6rem, 8vw, 4.6rem);
       font-weight: 700;
-      line-height: 1.08;
-      letter-spacing: -0.02em;
-      max-width: 780px;
     }
     h1 .accent { color: var(--accent); }
-
-    /* ── Subtitle ── */
+    .tagline {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1rem, 3.2vw, 1.5rem);
+      font-weight: 400;
+      margin-top: 0.6rem;
+      color: var(--text);
+    }
     .subtitle {
-      margin-top: 1.1rem;
+      margin: 1.1rem auto 0;
+      max-width: 620px;
       font-size: clamp(0.85rem, 2vw, 1rem);
       color: var(--mauve);
-      font-weight: 400;
-      letter-spacing: 0.01em;
-      max-width: 560px;
     }
 
-    /* ── Divider ── */
-    .divider {
-      width: 40px;
-      height: 1px;
-      background: var(--accent-dim);
-      margin: 2.4rem auto;
-    }
-
-    /* ── Status message ── */
-    .status {
-      font-size: 0.95rem;
-      color: var(--muted);
-      max-width: 460px;
-      line-height: 1.65;
-    }
-    .status strong {
+    /* ── Authors ── */
+    .authors {
+      margin-top: 2rem;
+      font-size: 1rem;
       color: var(--text);
-      font-weight: 500;
+      line-height: 1.9;
     }
+    .authors a { color: var(--text); border-bottom: 1px solid var(--accent-dim); }
+    .authors a:hover { color: var(--accent); text-decoration: none; }
+    .authors sup { color: var(--mauve); font-size: 0.7em; }
+    .affil {
+      margin-top: 0.6rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .affil sup { color: var(--mauve); }
+    .affil-note { margin-top: 0.15rem; font-size: 0.8rem; color: var(--muted); }
 
     /* ── Links row ── */
     .links {
-      margin-top: 2.8rem;
+      margin-top: 2.2rem;
       display: flex;
-      gap: 0.75rem;
+      gap: 0.7rem;
       flex-wrap: wrap;
       justify-content: center;
     }
     .link-btn {
       display: inline-flex;
       align-items: center;
-      gap: 0.45rem;
-      padding: 0.55rem 1.1rem;
+      gap: 0.5rem;
+      padding: 0.6rem 1.15rem;
       border: 1px solid var(--border);
       background: var(--surface);
-      color: var(--muted);
+      color: var(--text);
       font-family: 'Space Grotesk', sans-serif;
-      font-size: 0.78rem;
+      font-size: 0.82rem;
       font-weight: 500;
-      letter-spacing: 0.05em;
-      text-decoration: none;
-      border-radius: 2px;
-      cursor: not-allowed;
-      opacity: 0.55;
-      transition: opacity 0.2s;
-      user-select: none;
+      letter-spacing: 0.04em;
+      border-radius: 3px;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
+    .link-btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
     .link-btn svg { flex-shrink: 0; }
     .link-btn .tag {
-      font-size: 0.62rem;
-      color: var(--accent-dim);
-      border: 1px solid var(--accent-dim);
-      padding: 0.1rem 0.35rem;
+      font-size: 0.6rem;
+      color: var(--mauve);
+      border: 1px solid var(--border);
+      padding: 0.08rem 0.34rem;
       border-radius: 2px;
-      margin-left: 0.2rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
+
+    /* ── Sections ── */
+    section { padding: 4rem 0; border-bottom: 1px solid var(--border); }
+    .sec-label {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--mauve);
+      text-align: center;
+      margin-bottom: 0.7rem;
+    }
+    section h2 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 1.8rem;
+    }
+    section h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 2rem 0 0.5rem;
+      color: var(--text);
+    }
+    .prose p, .prose li { color: var(--text-dim); }
+    .prose strong { color: var(--text); font-weight: 600; }
+    .prose ul { margin: 0.6rem 0 0 1.1rem; }
+    .prose li { margin-top: 0.4rem; }
+
+    /* ── Figures ── */
+    figure {
+      margin: 2.2rem auto 0;
+      max-width: 960px;
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #fff;
+    }
+    figure.scroll { overflow-x: auto; }
+    figure.scroll img { min-width: 720px; }
+    figcaption {
+      margin-top: 0.7rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    figcaption b { color: var(--text-dim); font-weight: 600; }
+    .fig-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.1rem;
+      margin: 2.2rem auto 0;
+      max-width: 960px;
+    }
+    .fig-grid figure { margin: 0; }
+    @media (max-width: 720px) { .fig-grid { grid-template-columns: 1fr; } }
+
+    /* ── Teaser video ── */
+    .teaser {
+      margin: 2.6rem auto 0;
+      max-width: 960px;
+    }
+    .teaser video, .teaser img {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #000;
+    }
+    .legend {
+      margin-top: 0.8rem;
+      display: flex;
+      gap: 1.4rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    /* ── Key numbers ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin: 2.4rem auto 0;
+      max-width: 760px;
+    }
+    .stat {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      border-radius: 4px;
+      padding: 1.2rem 1rem;
+      text-align: center;
+    }
+    .stat .num {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.9rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .stat .cap { font-size: 0.74rem; color: var(--muted); margin-top: 0.3rem; }
+    @media (max-width: 620px) { .stats { grid-template-columns: 1fr; } }
+
+    /* ── Video embed ── */
+    .video-embed {
+      position: relative;
+      max-width: 900px;
+      margin: 0 auto;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      background: #000;
+    }
+    .video-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+    /* ── BibTeX ── */
+    .bibtex-box {
+      position: relative;
+      max-width: 820px;
+      margin: 0 auto;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface-2);
+    }
+    .bibtex-box pre {
+      margin: 0;
+      padding: 1.3rem 1.4rem;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: var(--text-dim);
+    }
+    .copy-btn {
+      position: absolute;
+      top: 0.7rem;
+      right: 0.7rem;
+      padding: 0.35rem 0.7rem;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--mauve);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* ── Acknowledgements / release ── */
+    .ack { font-size: 0.9rem; color: var(--text-dim); }
+    .ack + .ack { margin-top: 1rem; }
 
     /* ── Footer ── */
     footer {
-      position: fixed;
-      bottom: 1.5rem;
-      left: 0; right: 0;
+      padding: 2.5rem 1.5rem 3rem;
       text-align: center;
-      font-size: 0.7rem;
-      color: var(--border);
-      letter-spacing: 0.08em;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
     }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--accent); }
 
-    @media (prefers-reduced-motion: reduce) {
-      .venue-dot { animation: none; opacity: 1; }
-    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   </style>
 </head>
 <body>
 
-<canvas id="codec-canvas"></canvas>
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <canvas id="codec-canvas"></canvas>
 
-<main class="stage">
   <div class="venue">
-    <span class="venue-dot"></span>
-    ECCV 2026
+    <span class="star">&#9733;</span>
+    ECCV 2026 &nbsp;&middot;&nbsp; Spotlight
   </div>
 
-  <h1>
-    <span class="accent">VOCA</span><br/>
-    Visual Odometry with<br/>Codec Awareness
-  </h1>
+  <h1><span class="accent">VOCA</span></h1>
+  <div class="tagline">Visual Odometry with Codec Awareness</div>
 
   <p class="subtitle">
-    Causal stereo visual odometry that exploits codec metadata<br/>
-    to improve tracking under lossy video compression.
+    A causal stereo visual odometry method that reuses video codec information, such as
+    motion vectors and I-frame structure, to keep tracking under lossy compression.
   </p>
 
-  <div class="divider"></div>
-
-  <p class="status">
-    The project page is <strong>coming soon</strong>.<br/>
-    Code, ablations, and results will be uploaded here upon paper release.
+  <p class="authors">
+    <a href="https://www.linkedin.com/in/nourihilscher/">Nouri Alexander Hilscher</a><sup>*,1</sup>,
+    <a href="https://cvg.cit.tum.de/members/mayom">Mateo de Mayo</a><sup>*,1,2</sup>,
+    <a href="https://dominikmuhle.github.io/">Dominik Muhle</a><sup>1,2</sup>,
+    <a href="https://www.linkedin.com/in/christoph-otten-genannt-hermes-4106662b7/">Christoph Otten genannt Hermes</a><sup>1</sup>,
+    <a href="https://cvg.cit.tum.de/members/cremers">Daniel Cremers</a><sup>1,2</sup>
   </p>
+  <p class="affil"><sup>1</sup>&nbsp;Technical University of Munich &nbsp;&nbsp; <sup>2</sup>&nbsp;Munich Center for Machine Learning</p>
+  <p class="affil-note"><sup>*</sup>&nbsp;Equal contribution</p>
 
-  <div class="links">
-    <span class="link-btn">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+  <nav class="links">
+    <a class="link-btn" href="https://arxiv.org/abs/2607.00189">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       Paper
-      <span class="tag">soon</span>
-    </span>
-    <span class="link-btn">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>
-      Project Page
-      <span class="tag">soon</span>
-    </span>
-    <span class="link-btn">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+    </a>
+    <a class="link-btn" href="https://github.com/tum-vision/voca">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
       Code
-      <span class="tag">soon</span>
-    </span>
-  </div>
-</main>
+    </a>
+    <a class="link-btn" href="https://www.youtube.com/watch?v=0uslXwlNcSw">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Demo Video
+    </a>
+    <a class="link-btn" href="#bibtex">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+      BibTeX
+    </a>
+  </nav>
 
-<footer>Visual Odometry &nbsp;·&nbsp; KLT Tracking &nbsp;·&nbsp; Compressed Video</footer>
+  <div class="teaser">
+    <video autoplay muted loop playsinline poster="assets/voca-teaser-poster.jpg">
+      <source src="assets/voca-teaser.mp4" type="video/mp4" />
+      <img src="assets/voca-teaser.gif" alt="VOCA teaser: tracking on compressed video" />
+    </video>
+    <div class="legend">
+      <span><span class="dot" style="background:#2ecc71"></span>Previous-pixel prior</span>
+      <span><span class="dot" style="background:#3498db"></span>VOCA motion-vector prior</span>
+      <span><span class="dot" style="background:#e74c3c"></span>Optical-flow result</span>
+    </div>
+  </div>
+</header>
+
+<!-- ================= ABSTRACT ================= -->
+<section id="abstract">
+  <div class="wrap prose">
+    <div class="sec-label">Abstract</div>
+    <h2>Tracking on compressed video</h2>
+    <p>
+      Camera pose estimation from image streams is a critical component of spatial world models
+      that integrate perception into planning and decision-making. Nearly all visual odometry (VO)
+      and SLAM systems have focused on datasets containing raw, uncompressed videos. Many working
+      systems instead use ubiquitous hardware units to efficiently compress and decode video streams,
+      saving orders of magnitude in storage and bandwidth. However, this lossy compression introduces
+      visual artifacts that hinder the performance of traditional tracking systems.
+    </p>
+    <p>
+      We present VOCA, a causal stereo visual odometry method that exploits codec information to
+      improve tracking. It reaches state-of-the-art performance on causal VO for relative trajectory
+      error, efficiency, and absolute trajectory error on compressed streams, showing the potential
+      of widely available video codec information for vision tasks.
+    </p>
+  </div>
+</section>
+
+<!-- ================= OVERVIEW ================= -->
+<section id="overview">
+  <div class="wrap prose">
+    <div class="sec-label">Overview</div>
+    <h2>Why compression breaks tracking</h2>
+    <p>
+      A raw stereo stream of 640&times;480 monochrome images at 30&nbsp;fps produces more than a
+      gigabyte per minute, so practical systems compress camera streams with hardware codecs such as
+      H.264, AV1, and VP9. The compression is lossy. It blurs detail, flattens contrast, and adds
+      blocky artifacts that break the brightness constancy assumption behind KLT feature tracking.
+      Around 100&times; compression is enough to make state-of-the-art VO and SLAM systems drift or
+      diverge.
+    </p>
+    <p>
+      The encoded bitstream still carries useful structure. Every inter-frame block comes with a
+      motion vector that points to a similar-looking region in a past frame. These vectors are
+      optimized for compression, so they are noisy estimates of scene motion, but they still roughly
+      follow optical flow and can cover displacements too large for an image pyramid. VOCA reuses
+      this near-free metadata as a tracking prior.
+    </p>
+    <figure>
+      <img src="assets/fig-artifacts.jpg" loading="lazy" alt="Raw vs. compressed image crops showing blur, reduced contrast, and jagged edges" />
+      <figcaption>
+        <b>Compression artifacts.</b> Raw versus 500&nbsp;kbps crops from EuRoC, TUM-VI, and the
+        Monado SLAM Dataset: blurred detail, lower contrast on the thin net, jagged edges. All of
+        these break photometric constancy.
+      </figcaption>
+    </figure>
+    <h3>Contributions</h3>
+    <ul>
+      <li>VOCA, a causal stereo VO method that runs on compressed video and uses its codec information for accuracy and efficiency.</li>
+      <li>A benchmark showing state-of-the-art performance under compression up to about 100&times;.</li>
+      <li>An ablation that isolates the contribution of each component.</li>
+      <li>A degradation analysis of top VO and SLAM systems across compression settings.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= METHOD ================= -->
+<section id="method">
+  <div class="wrap prose">
+    <div class="sec-label">Method</div>
+    <h2>From codec metadata to KLT priors</h2>
+    <p>
+      VOCA is built on the odometry system Basalt, using the tracking front-end from Monado's fork.
+      It stays causal: encoding order matches capture order and inter-frame prediction only
+      references past frames, so it fits real-time streaming.
+    </p>
+    <figure class="scroll">
+      <img src="assets/fig-codec.jpg" loading="lazy" alt="Macroblock partitions, decoded motion vectors, and the induced normalized vector field" />
+      <figcaption>
+        <b>Encoded information.</b> Macroblock partitions of a frame (left), the motion vectors H.264
+        assigns to them (center), and the vector field they induce (right). The field correlates with
+        optical flow but is noisier, since the encoder can match any region that helps compression.
+        Vectors likely to disagree with true motion are shown in red.
+      </figcaption>
+    </figure>
+
+    <h3>Motion vectors as initialization priors</h3>
+    <p>
+      Decoded motion vectors are purely translational and too noisy to use as correspondences
+      directly, and they cannot express the in-plane rotation in Basalt's SE(2) patch model. VOCA
+      uses them only to initialize the KLT translation, then lets the optimizer refine translation
+      and rotation. Where a vector is unreliable, from low texture, repetition, or motion blur, the
+      refinement corrects it.
+    </p>
+    <figure>
+      <img src="assets/fig-guess_error.png" loading="lazy" alt="Distributions of pixel distance between prior guess and converged track, VOCA vs. Basalt" />
+      <figcaption>
+        <b>Proximity to the minimum.</b> Distance from the initialization point to the converged
+        track. With motion-vector priors most guesses land within 1 to 2 pixels of the solution,
+        close enough to place the optimizer inside its basin of convergence.
+      </figcaption>
+    </figure>
+
+    <h3>Consensus filtering and I-frame bridging</h3>
+    <p>
+      Large-displacement priors can introduce false positives: a wrong vector that lands on a
+      similar-looking region, or a correct vector on a moving object. Forward-backward consistency
+      does not catch these, so VOCA tracks each point twice, with and without the motion prior. A
+      point found by one mode is kept; a point found by both is kept only if the two agree. I-frames
+      carry no motion vectors and tend to appear when the scene changes most, so VOCA reuses the
+      vectors from the last P-frame under a constant-motion assumption to bridge them.
+    </p>
+  </div>
+</section>
+
+<!-- ================= RESULTS ================= -->
+<section id="results">
+  <div class="wrap">
+    <div class="sec-label">Results</div>
+    <h2>State-of-the-art causal stereo VO under compression</h2>
+
+    <div class="prose">
+      <p>
+        We evaluate on EuRoC (drone), TUM-VI (handheld), and the Monado SLAM Dataset (head-mounted
+        VR and humanoid), compressing each camera separately up to about 100&times;. Baselines are
+        ORB-SLAM3, OKVIS2, MoV-SLAM (the only earlier method aimed at compressed video), and Basalt,
+        all run as causal stereo with loop closure disabled to isolate the front-end.
+      </p>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="num">~37%</div><div class="cap">lower median ATE on MSD vs. 2nd best</div></div>
+      <div class="stat"><div class="num">~40%</div><div class="cap">lower median RTE on MSD vs. 2nd best</div></div>
+      <div class="stat"><div class="num">+36%</div><div class="cap">more sequences successfully tracked on MSD</div></div>
+    </div>
+
+    <figure>
+      <img src="assets/fig-trajectories.jpg" loading="lazy" alt="Estimated trajectories for VOCA, OKVIS2 and ORB-SLAM3 against ground truth on three sequences" />
+      <figcaption>
+        <b>Qualitative trajectories.</b> On compressed video VOCA produces smoother, more stable
+        trajectories than descriptor-based systems. Zoom-ins show the previous-pixel prior used by
+        standard VO, the motion-vector prior VOCA adds, and the optical-flow solution.
+      </figcaption>
+    </figure>
+
+    <div class="fig-grid">
+      <figure>
+        <img src="assets/fig-euroc.png" loading="lazy" alt="Median ATE and RTE vs. bitrate on EuRoC" />
+      </figure>
+      <figure>
+        <img src="assets/fig-tumvi.png" loading="lazy" alt="Median ATE and RTE vs. bitrate on TUM-VI" />
+      </figure>
+    </div>
+    <p class="prose" style="text-align:center; font-size:0.8rem; color:var(--muted); margin-top:0.9rem">
+      <b style="color:var(--text-dim)">Median ATE / RTE vs. bitrate</b> on EuRoC (left) and TUM-VI
+      (right). VOCA stays stable down to 500&nbsp;kbps, roughly 100&times; compression, while the
+      baselines lose accuracy, OKVIS2 most of all.
+    </p>
+
+    <figure class="scroll">
+      <img src="assets/fig-msd_heatmap.jpg" loading="lazy" alt="Per-sequence ranking heatmap on the Monado SLAM Dataset" />
+      <figcaption>
+        <b>Monado SLAM Dataset overview.</b> Per-sequence ranks for ATE and RTE. Green marks a
+        first-place rank; gray marks divergences (&#8734;) and resets (&#8635;). VOCA leads on most
+        of this harder dataset.
+      </figcaption>
+    </figure>
+
+    <div class="prose">
+      <p>
+        On EuRoC, VOCA improves RTE over Basalt by about 15% and recovers hard sequences where other
+        systems fail. On TUM-VI it stays consistent across the room sequences. On the Monado SLAM
+        Dataset, with dynamic occlusions, strong accelerations, and fast rotations, median ATE and
+        RTE improve by roughly 37% and 40% over the second-best method, with a 36% higher success
+        rate. The ablation shows the parallel motion-vector and optical-flow consensus with I-frame
+        bridging gives the best overall accuracy.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= VIDEO ================= -->
+<section id="video">
+  <div class="wrap">
+    <div class="sec-label">Demo</div>
+    <h2>40-second demo</h2>
+    <div class="video-embed">
+      <iframe src="https://www.youtube.com/embed/0uslXwlNcSw" title="VOCA demo video"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BIBTEX ================= -->
+<section id="bibtex">
+  <div class="wrap">
+    <div class="sec-label">Citation</div>
+    <h2>BibTeX</h2>
+    <div class="bibtex-box">
+      <button class="copy-btn" id="copy-btn" type="button">Copy</button>
+      <pre id="bibtex-src">@inproceedings{hilscher2026voca,
+  author    = {Hilscher, Nouri Alexander and de Mayo, Mateo and Muhle, Dominik
+               and Otten genannt Hermes, Christoph and Cremers, Daniel},
+  title     = {{VOCA}: Visual Odometry with Codec Awareness},
+  booktitle = {European Conference on Computer Vision (ECCV)},
+  year      = {2026},
+}</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ACKNOWLEDGEMENTS ================= -->
+<section id="acknowledgements">
+  <div class="wrap prose">
+    <div class="sec-label">Acknowledgements</div>
+    <h2>Acknowledgements</h2>
+    <p class="ack">
+      This work was supported by the European Research Council (ERC) Advanced Grant SIMULACRON, by
+      the DFG project CR&nbsp;250/26-1 &ldquo;4D-YouTube&rdquo;, by the GNI Project
+      &ldquo;AI4Twinning&rdquo;, and by the Munich Center for Machine Learning.
+    </p>
+    <p class="ack">
+      VOCA builds on the <a href="https://github.com/VladyslavUsenko/basalt">Basalt</a> codebase and
+      <a href="https://gitlab.freedesktop.org/mateosss/basalt">Monado's fork of Basalt</a>, and is
+      evaluated on the
+      <a href="https://huggingface.co/datasets/collabora/monado-slam-datasets">Monado SLAM
+      Dataset</a>, EuRoC, and TUM-VI.
+    </p>
+  </div>
+</section>
+
+<footer>
+  VOCA &nbsp;&middot;&nbsp; ECCV 2026 Spotlight &nbsp;&middot;&nbsp;
+  <a href="https://cvg.cit.tum.de/">Computer Vision Group, TU Munich</a> &nbsp;&middot;&nbsp;
+  <a href="https://github.com/tum-vision/voca">GitHub</a>
+</footer>
 
 <script>
-  // ── Codec macroblock grid animation ──
-  // Simulates the pulsing luminance/chrominance block structure
-  // seen in video codec internals — the paper's core subject.
+  /* ── Copy BibTeX ── */
+  (function () {
+    var btn = document.getElementById('copy-btn');
+    var src = document.getElementById('bibtex-src');
+    if (!btn || !src) return;
+    btn.addEventListener('click', function () {
+      var text = src.innerText;
+      var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1800); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, done);
+      } else {
+        var r = document.createRange(); r.selectNode(src);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        try { document.execCommand('copy'); } catch (e) {}
+        s.removeAllRanges(); done();
+      }
+    });
+  })();
 
-  const canvas = document.getElementById('codec-canvas');
-  const ctx    = canvas.getContext('2d');
+  /* ── Codec macroblock grid animation (hero background) ── */
+  (function () {
+    var canvas = document.getElementById('codec-canvas');
+    var hero = canvas.parentElement;
+    var ctx = canvas.getContext('2d');
 
-  const BLOCK  = 28;    // macroblock size (px)
-  const ACCENT = [0, 201, 167];
-  const MAUVE  = [139, 127, 168];
+    var BLOCK  = 28;
+    var ACCENT = [0, 201, 167];
+    var MAUVE  = [139, 127, 168];
+    var cols, rows, blocks, W, H, t = 0, raf = null;
 
-  let cols, rows, blocks, W, H;
+    function rand(min, max) { return Math.random() * (max - min) + min; }
 
-  function resize() {
-    W = canvas.width  = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-    cols = Math.ceil(W / BLOCK) + 1;
-    rows = Math.ceil(H / BLOCK) + 1;
-    initBlocks();
-  }
-
-  function rand(min, max) { return Math.random() * (max - min) + min; }
-
-  function initBlocks() {
-    blocks = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        blocks.push({
-          x: c * BLOCK,
-          y: r * BLOCK,
-          phase:    rand(0, Math.PI * 2),
-          speed:    rand(0.003, 0.012),
-          palette:  Math.random() < 0.15 ? 1 : 0,  // occasional mauve
-          maxAlpha: rand(0.03, 0.22),
-        });
+    function initBlocks() {
+      blocks = [];
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          blocks.push({
+            x: c * BLOCK, y: r * BLOCK,
+            phase: rand(0, Math.PI * 2),
+            speed: rand(0.003, 0.012),
+            palette: Math.random() < 0.15 ? 1 : 0,
+            maxAlpha: rand(0.03, 0.20)
+          });
+        }
       }
     }
-  }
 
-  let t = 0;
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-
-    for (const b of blocks) {
-      const v = (Math.sin(t * b.speed + b.phase) + 1) / 2;
-      const a = v * b.maxAlpha;
-      const [r, g, bl] = b.palette === 1 ? MAUVE : ACCENT;
-      ctx.fillStyle = `rgba(${r},${g},${bl},${a})`;
-      ctx.fillRect(b.x + 0.5, b.y + 0.5, BLOCK - 1, BLOCK - 1);
+    function resize() {
+      W = canvas.width  = hero.clientWidth;
+      H = canvas.height = hero.clientHeight;
+      cols = Math.ceil(W / BLOCK) + 1;
+      rows = Math.ceil(H / BLOCK) + 1;
+      initBlocks();
     }
 
-    // Subtle grid lines
-    ctx.strokeStyle = 'rgba(37,42,56,0.6)';
-    ctx.lineWidth   = 0.5;
-    for (let c = 0; c <= cols; c++) {
-      ctx.beginPath();
-      ctx.moveTo(c * BLOCK, 0);
-      ctx.lineTo(c * BLOCK, H);
-      ctx.stroke();
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      for (var i = 0; i < blocks.length; i++) {
+        var b = blocks[i];
+        var v = (Math.sin(t * b.speed + b.phase) + 1) / 2;
+        var a = v * b.maxAlpha;
+        var p = b.palette === 1 ? MAUVE : ACCENT;
+        ctx.fillStyle = 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')';
+        ctx.fillRect(b.x + 0.5, b.y + 0.5, BLOCK - 1, BLOCK - 1);
+      }
+      ctx.strokeStyle = 'rgba(37,42,56,0.55)';
+      ctx.lineWidth = 0.5;
+      for (var c = 0; c <= cols; c++) { ctx.beginPath(); ctx.moveTo(c * BLOCK, 0); ctx.lineTo(c * BLOCK, H); ctx.stroke(); }
+      for (var r = 0; r <= rows; r++) { ctx.beginPath(); ctx.moveTo(0, r * BLOCK); ctx.lineTo(W, r * BLOCK); ctx.stroke(); }
+      t++;
+      raf = requestAnimationFrame(draw);
     }
-    for (let r = 0; r <= rows; r++) {
-      ctx.beginPath();
-      ctx.moveTo(0, r * BLOCK);
-      ctx.lineTo(W, r * BLOCK);
-      ctx.stroke();
-    }
 
-    t++;
-    requestAnimationFrame(draw);
-  }
-
-  // Respect prefers-reduced-motion
-  const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-  window.addEventListener('resize', resize);
-  resize();
-
-  if (!mq.matches) {
-    draw();
-  } else {
-    // Static single-frame render
-    t = Math.random() * 1000;
-    draw();
-    cancelAnimationFrame(draw);
-  }
+    var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    window.addEventListener('resize', function () {
+      resize();
+      if (mq.matches) { t = Math.random() * 1000; draw(); if (raf) cancelAnimationFrame(raf); }
+    });
+    resize();
+    if (mq.matches) { t = Math.random() * 1000; draw(); if (raf) cancelAnimationFrame(raf); }
+    else { draw(); }
+  })();
 </script>
 
 </body>
