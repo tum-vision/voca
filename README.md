@@ -67,12 +67,6 @@ git clone --recursive https://github.com/tum-vision/voca.git
 cd voca
 ```
 
-For an existing clone without initialized submodules, run:
-
-```bash
-./scripts/update_submodules.sh
-```
-
 Install the system dependencies. The script supports Homebrew on macOS, DNF on Fedora, and APT on Ubuntu and Debian:
 
 ```bash
@@ -82,7 +76,7 @@ sudo apt-get update
 ./scripts/install_deps.sh
 ```
 
-The Fedora packages provide the libraries required to build and decode videos. Reproducing the exact paper encoding additionally requires an FFmpeg build that exposes the `libx264` encoder. Fedora users can obtain such a build from RPM Fusion.
+The Fedora packages provide the libraries required to build and decode videos. Reproducing the exact paper encoding additionally requires an FFmpeg build that exposes the `libx264` encoder. 
 
 Build the standalone VOCA executable and its visualization UI:
 
@@ -144,7 +138,6 @@ DATASET=/path/to/MH_01_easy
 WORKDIR=/path/to/fast-working-directory
 CONFIG=data/euroc/euroc_config_vo.json
 DEVICE=euroc
-PREPARE_LOG=/tmp/voca-prepare.log
 
 mkdir -p "$WORKDIR"
 
@@ -152,7 +145,7 @@ python3 -u .ci/get_dataset.py \
   "$DATASET" \
   "$WORKDIR" \
   --config_path "$CONFIG" \
-  --device "$DEVICE" | tee "$PREPARE_LOG"
+  --device "$DEVICE"
 ```
 
 If the dataset is stored as an archive, pass the archive path without the `.zip` suffix. Generated videos are written to:
@@ -165,16 +158,16 @@ The script prints `VIDEO_PATH=<path>` followed by the final dataset path on its 
 
 No separate decoding step is needed. VOCA decodes compressed frames internally through OpenCV. When motion vectors are enabled, the FFmpeg decoder also exports codec motion vectors through frame side data.
 
-A paper-style EuRoC run without the UI looks like this:
+A paper-style EuRoC can be executed like this:
 
 ```bash
-FINAL_DATASET=/path/printed/on/the/final/line
-VIDEO_DATASET=/path/printed/after/VIDEO_PATH
+DATASET=/path/to/dataset/files
+VIDEO_DATASET=/path/to/compressed/video/frames
 CONFIG=data/euroc/euroc_config_vo.json
 CALIB=data/euroc/euroc_ds_calib.json
 
 ./build/basalt_vio \
-  --dataset-path "$FINAL_DATASET" \
+  --dataset-path "$DATASET" \
   --video-dataset-path "$VIDEO_DATASET" \
   --dataset-type euroc \
   --cam-calib "$CALIB" \
@@ -204,7 +197,7 @@ The current code supports all four paper variants through the dataset configurat
 | Motion vector initialized optical flow | `3.mvof` | `true` | `F2F_MV_FALLBACK_OF` | `--use-mvs 1` | Motion vector initialized optical flow first, then standard optical flow for lost points |
 | Motion vector and optical flow consensus | `4.mvofc` | `true` | `OF_MVOF_CONSENSUS` | `--use-mvs 1` | Motion vector initialized and standard optical flow are compared |
 
-The consensus configuration also uses:
+The consensus configuration additionally uses a tolerance value:
 
 ```json
 "config.optical_flow_consensus_tolerance": 0.05
@@ -217,15 +210,11 @@ All four variants use compressed video frames and visual-only odometry:
 "config.use_imu": false
 ```
 
-For manual runs, the value passed to `--use-mvs` must match `config.use_mvs`. The JSON value is read by the CI pipeline, but it does not automatically change the standalone executable option.
-
-The tags `1.base`, `2.ofmv`, `3.mvof`, and `4.mvofc` preserve the exact paper revisions. The current `main` branch contains all four implementations, so the variants can also be selected by copying the appropriate dataset configuration and changing the fields shown above.
-
-
 ## ⚙️ Evaluation CI
 
 <details>
 <summary><strong>Reproducing our GitLab evaluation setup</strong></summary>
+
 
 The complete runner configuration is documented in [`.ci/README.md`](.ci/README.md). The setup uses one GitLab Runner with the Docker executor and the tag `basalt-evaluation-box`.
 
@@ -299,58 +288,10 @@ Start the UI by changing the run command to:
 
 The window contains the stereo camera views, the estimated 3D trajectory, and diagnostic plots. Open **Features Menu** to enable the codec visualizations:
 
-- **show_motion_vectors** draws orange lines from codec source positions to destination positions.
+- **show_motion_vectors** draws motion vectors from codec source positions to destination positions.
 - **show_macro_blocks** draws translucent codec block rectangles with colored outlines based on the reference direction.
 
 Both overlays require encoded `data.mp4` files and `--use-mvs 1`. The first encoded frame is normally an I-frame and has no motion vectors. Advance to a P-frame before checking the overlays.
-
-Useful keyboard controls:
-
-- Space pauses or resumes processing.
-- `.` and `,` move to the next or previous frame.
-- `>` and `<` move ten frames forward or backward.
-- The bottom frame slider revisits frames that have already been processed.
-
-
-## ✅ Verification
-
-After a fresh recursive clone, the following checks cover the main installation and evaluation paths:
-
-```bash
-# No submodule status line should begin with a minus sign
-git submodule status --recursive
-
-# Build and run the unit tests
-cmake --preset full --fresh
-cmake --build build --parallel 4
-ctest --test-dir build --output-on-failure
-
-# Confirm that the paper encoder is available
-ffmpeg -hide_banner -encoders | grep libx264
-```
-
-After preparing one short sequence, confirm the encoded stream properties and exported motion vector data:
-
-```bash
-ffprobe \
-  -v error \
-  -select_streams v:0 \
-  -show_entries stream=codec_name,pix_fmt,r_frame_rate,avg_frame_rate,nb_frames,bit_rate \
-  -of json \
-  "$VIDEO_DATASET/mav0/cam0/data.mp4"
-
-ffprobe \
-  -v error \
-  -flags2 +export_mvs \
-  -select_streams v:0 \
-  -show_frames \
-  -show_entries frame=pict_type:frame_side_data=side_data_type \
-  -of compact \
-  "$VIDEO_DATASET/mav0/cam0/data.mp4" | grep "Motion vectors"
-```
-
-Run each ablation on the same short sequence with `--deterministic 1` and `--max-frames 200`. Check that the log prints the expected optical flow subtype and that every run produces a trajectory. Finally, launch the UI in step-by-step mode and confirm that macroblocks and motion vectors appear on P-frames.
-
 
 
 ## 📚 BibTeX
