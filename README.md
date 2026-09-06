@@ -45,8 +45,6 @@
 
 Camera pose estimation from image streams is a critical component of spatial world models that integrate perception for planning and decision making. Nearly all visual odometry (VO) and SLAM systems have focused on datasets containing raw and uncompressed videos. Many working systems, instead, use ubiquitous hardware units to compress and decode video streams efficiently, saving orders of magnitude in space and bandwidth. However, this lossy compression introduces visual artifacts that hinder the performance of traditional tracking systems. In this work, we present VOCA, a causal stereo visual-odometry method that exploits codec information to improve tracking performance. We achieve state-of-the-art performance on causal VO for relative trajectory error, efficiency, and absolute trajectory error on compressed streams.
 
-<<<<<<< Updated upstream
-=======
 
 ## 📌 Release Status
 
@@ -355,7 +353,6 @@ Run each ablation on the same short sequence with `--deterministic 1` and `--max
 
 
 
->>>>>>> Stashed changes
 ## 📚 BibTeX
 If you find our work useful, please consider citing our paper:
 ```bibtex
