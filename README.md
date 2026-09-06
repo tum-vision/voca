@@ -49,7 +49,7 @@ Camera pose estimation from image streams is a critical component of spatial wor
 ## 📌 Release Status
 
 - [X] [Paper (arXiv)](https://arxiv.org/abs/2607.00189)
-- [ ] Code
+- [X] Code
 - [ ] Ablations
 - [ ] Evaluation results
 
