@@ -156,7 +156,7 @@ CALIB=data/euroc/euroc_ds_calib.json
 
 ## 🧪 Ablations
 
-The current code supports all four paper variants through dataset configuration and the `--use-mvs` runtime option.
+The current code supports all five paper variants through dataset configuration and the `--use-mvs` runtime option.
 
 | Variant | Paper tag | `config.use_mvs` | `config.optical_flow_subtype` | Runtime option | Tracking order |
 |---|---|---:|---|---|---|
@@ -164,6 +164,7 @@ The current code supports all four paper variants through dataset configuration 
 | Optical flow with motion vector fallback | `2.ofmv` | `true` | `F2F_OF_FALLBACK_MV` | `--use-mvs 1` | Optical flow first, then motion vector initialized optical flow for lost points |
 | Motion vector initialized optical flow | `3.mvof` | `true` | `F2F_MV_FALLBACK_OF` | `--use-mvs 1` | Motion vector initialized optical flow first, then standard optical flow for lost points |
 | Motion vector and optical flow consensus | `4.mvofc` | `true` | `OF_MVOF_CONSENSUS` | `--use-mvs 1` | Motion vector initialized and standard optical flow are compared |
+| Keyframe constant velocity assumption | `5.mvofckf` | `true` | `OF_MVOF_CONSENSUS` | `--use-mvs 1` | Same as `4.mvofc`, but a constant velocity assumption is used on keyframes (I-frames) |
 
 The consensus configuration additionally uses a tolerance value:
 
@@ -171,7 +172,7 @@ The consensus configuration additionally uses a tolerance value:
 "config.optical_flow_consensus_tolerance": 0.05
 ```
 
-All four variants use compressed video frames and visual-only odometry:
+All five variants use compressed video frames and visual-only odometry:
 
 ```json
 "config.use_video_frames": true,
