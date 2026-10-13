@@ -95,6 +95,7 @@ struct OpticalFlowInput {
   // Recorded internal pipeline values for UI playback
   double depth_guess = -1;        //!< Depth guess to use for all features
   bool state_reset = false;       //!< Whether to schedule a state reset in the backend
+  bool had_iframe_before = false;
   std::vector<Masks> masks{};     //!< Regions of the image to ignore
   UIMAT show_uimat = UIMAT::ALL;  //!< Which matrix to compute for the UI
 

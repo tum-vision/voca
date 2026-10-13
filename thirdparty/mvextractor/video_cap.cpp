@@ -241,7 +241,7 @@ int VideoCap::grab() {
 }
 
 int VideoCap::retrieve(uint8_t **frame, int *step, int *width, int *height, int *cn, char *frame_type,
-                       MVS_DTYPE **motion_vectors, MVS_DTYPE *num_mvs, double *frame_timestamp) {
+                       MVS_DTYPE **motion_vectors, MVS_DTYPE *num_mvs, double *frame_timestamp, bool *is_keyframe) {
   if (!(this->video_stream) || !(this->frame->data[0])) {
     std::cerr << "There is no video stream or the frame is empty!" << std::endl;
     return -1;
@@ -337,14 +337,16 @@ int VideoCap::retrieve(uint8_t **frame, int *step, int *width, int *height, int 
   //    std::cout << "setting the timestamp" << std::endl;
   // return the timestamp which was computed previously in grab()
   *frame_timestamp = this->frame_timestamp;
+  *is_keyframe = this->frame->key_frame;
 
   return 0;
 }
 
 int VideoCap::read(uint8_t **frame, int *step, int *width, int *height, int *cn, char *frame_type,
-                   MVS_DTYPE **motion_vectors, MVS_DTYPE *num_mvs, double *frame_timestamp) {
+                   MVS_DTYPE **motion_vectors, MVS_DTYPE *num_mvs, double *frame_timestamp, bool *is_keyframe) {
   int ret = this->grab();
   if (ret >= 0)
-    ret = this->retrieve(frame, step, width, height, cn, frame_type, motion_vectors, num_mvs, frame_timestamp);
+    ret = this->retrieve(frame, step, width, height, cn, frame_type, motion_vectors, num_mvs, frame_timestamp,
+                         is_keyframe);
   return ret;
 }

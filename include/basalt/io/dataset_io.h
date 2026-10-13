@@ -74,11 +74,12 @@ struct MotionVector {
 };
 
 struct ImageData {
-  ImageData() : exposure(0) {}
+  ImageData() : exposure(0), keyframe(false) {}
 
   ManagedImage<uint16_t>::Ptr img;
   std::vector<MotionVector> motion_vectors;
   double exposure;
+  bool keyframe;
 };
 
 struct Observations {

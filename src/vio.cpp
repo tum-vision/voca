@@ -135,7 +135,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   size_t frame_count = 0;
 
   AutoScaleDataLog log_imu;
-  AutoScaleDataLog log_vel, log_pos, log_ba, log_bg, log_point_count, log_ate, log_rte;
+  AutoScaleDataLog log_vel, log_pos, log_ba, log_bg, log_mblur, log_point_count, log_pcount_kf, log_ate, log_rte;
   std::unordered_map<KeypointId, size_t> keypoint_lifespans;
   shared_ptr<Plotter> plotter;
 
@@ -269,13 +269,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
     app.add_option("--use-mvs", use_mvs, "Use motion vectors for tracking guesses");
-    app.add_option("--video-dataset-path", video_dataset_path, "Optional path to video dataset if video set differes from image set.");
-    app.add_option("--use-video-frames", use_video_frames, "Whether to use video frames instead of image frames for optical flow.");
+    app.add_option("--video-dataset-path", video_dataset_path,
+                   "Optional path to video dataset if video set differes from image set.");
+    app.add_option("--use-video-frames", use_video_frames,
+                   "Whether to use video frames instead of image frames for optical flow.");
 
     try {
       app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
-      return app.exit(e); 
+      return app.exit(e);
     }
 
     // global thread limit is in effect until global_control object is destroyed
@@ -287,8 +289,6 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     if (!config_path.empty()) {
       config.load(config_path);
-
-      std::cout << "Optical Flow Subtype: " << magic_enum::enum_name(config.optical_flow_subtype) << std::endl;
 
       if (config.vio_enforce_realtime) {
         config.vio_enforce_realtime = false;
@@ -323,10 +323,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       // FIXME: add support for other dataset types
       if (use_mvs && dataset_type != "euroc") {
-        std::cout << "WARNING: --use-mvs is enabled but dataset type is '" << dataset_type 
+        std::cout << "WARNING: --use-mvs is enabled but dataset type is '" << dataset_type
                   << "'. Motion vectors are only supported for dataset type 'euroc'. "
-                  << "The flag will be ignored and standard optical flow will be used." 
-                  << std::endl;
+                  << "The flag will be ignored and standard optical flow will be used." << std::endl;
       }
 
       basalt::DatasetIoInterfacePtr dataset_io_ui = basalt::DatasetIoFactory::getDatasetIo(dataset_type);
@@ -445,6 +444,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     log_ba.Clear();
     log_bg.Clear();
     log_point_count.Clear();
+    log_pcount_kf.Clear();
     log_ate.Clear();
     log_rte.Clear();
   }
@@ -455,6 +455,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
     std::vector<float> point_count;
     for (const auto& proj : *data->projections) point_count.push_back(proj.size());
     log_point_count.ScaledLog(t_s, point_count);
+
+    bool is_keyframe = false;
+    bool had_keyframe_before = data->opt_flow_res->input_images->had_iframe_before;
+    for (auto& i : data->opt_flow_res->input_images->img_data) is_keyframe |= i.keyframe;
+    if (is_keyframe || had_keyframe_before) log_pcount_kf.ScaledLog(t_s, {point_count.at(0)});
 
     for (const auto& cam_kps : data->opt_flow_res->keypoints)
       for (const auto& [kpid, _] : cam_kps) keypoint_lifespans[kpid]++;
@@ -962,6 +967,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_fallback_guess) do_show_fallback_guess_vio(cam_id, show_frame, vio_dataset, vis_map);
     if (show_motion_vectors) do_show_motion_vectors(cam_id);
     if (show_macro_blocks) do_show_macro_blocks(cam_id);
+    if (show_codec_keyframe) do_show_codec_keyframe(cam_id);
     if (show_matching_guess) do_show_matching_guesses(cam_id);
     if (show_recall_guess) do_show_recall_guesses(cam_id);
     if (show_masks) do_show_masks(cam_id);
@@ -1041,6 +1047,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       glColor3ubv(vis::GREEN);
       glPointSize(10);
       pangolin::glDrawPoints(highlighted_points);
+      glPointSize(3);
     }
 
     glColor3ubv(pose_color);
@@ -1135,6 +1142,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
       for (size_t i = 0; i < N; i++)
         plotter->AddSeries("$0", "$" + std::to_string(i + 1), pangolin::DrawingModeLine, colors[i % colors.size()],
                            "point count cam" + std::to_string(i), &log_point_count);
+      glPointSize(6);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModePoints, vis::C_YELLOW(), "Keyframes", &log_pcount_kf);
+      glPointSize(3);
     }
 
     if (show_frames_ate) {

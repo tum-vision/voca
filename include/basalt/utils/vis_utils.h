@@ -272,6 +272,7 @@ struct VIOUIBase {
   Var<bool> show_fallback_guess{"features_menu.show_fallback_guess", false, true};
   Var<bool> show_motion_vectors{"features_menu.show_motion_vectors", false, true};
   Var<bool> show_macro_blocks{"features_menu.show_macro_blocks", false, true};
+  Var<bool> show_codec_keyframe{"features_menu.show_codec_keyframe", true, true};
   Var<bool> show_matching_guess{"features_menu.show_matching_guess", false, true};
   Var<bool> show_recall_guess{"features_menu.show_recall_guess", false, true};
   Var<bool> show_obs{"features_menu.show_obs", true, true};
@@ -359,6 +360,7 @@ struct VIOUIBase {
   void do_show_grid();
   void do_show_safe_radius();
   void do_show_keyframe();
+  void do_show_codec_keyframe(size_t cam_id);
   void do_show_guesses(size_t cam_id);
   void do_show_obs(size_t cam_id);
   void draw_blocks_overlay();

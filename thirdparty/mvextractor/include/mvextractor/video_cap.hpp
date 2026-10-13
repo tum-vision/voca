@@ -121,12 +121,12 @@ class VideoCap {
    *    decoded and returned successfully, false otherwise.
    */
   int retrieve(uint8_t **frame, int *step, int *width, int *height, int *cn, char *frame_type,
-               MVS_DTYPE **motion_vectors, MVS_DTYPE *num_mvs, double *frame_timestamp);
+               MVS_DTYPE **motion_vectors, MVS_DTYPE *num_mvs, double *frame_timestamp, bool *is_keyframe);
 
   /** Convenience wrapper which combines a call of `grab` and `retrieve`.
    *
    *   The parameters and return value correspond to the `retrieve` method.
    */
   int read(uint8_t **frame, int *step, int *width, int *height, int *cn, char *frame_type, MVS_DTYPE **motion_vectors,
-           MVS_DTYPE *num_mvs, double *frame_timestamp);
+           MVS_DTYPE *num_mvs, double *frame_timestamp, bool *is_keyframe);
 };

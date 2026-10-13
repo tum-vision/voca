@@ -388,9 +388,13 @@ void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
 
 void VIOUIBase::do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
                                            const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map) {
-  if (frame_id < 1) return;
+  if (frame_id < 2) return;
 
-  int64_t prev_ts = vio_dataset->get_image_timestamps().at(frame_id - 1);
+  const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
+
+  int64_t prev_ts = curr_vis_data->opt_flow_res->input_images->had_iframe_before
+                        ? vio_dataset->get_image_timestamps().at(frame_id - 2)
+                        : vio_dataset->get_image_timestamps().at(frame_id - 1);
   auto prev_it = vis_map.find(prev_ts);
   if (prev_it == vis_map.end()) return;
   const VioVisualizationData::Ptr& prev_vis_data = prev_it->second;
@@ -646,6 +650,31 @@ void VIOUIBase::do_show_keyframe() {
   float p = -0.5f;  // Off-center pixel
 
   glColor4f(0.13, 0.59, 0.95, 0.75);                         // Low opacity blue
+  pangolin::glDrawRect(p + 0, p + 0, p + w, p + b);          // Top
+  pangolin::glDrawRect(p + 0, p + h - b, p + w, p + h);      // Bottom
+  pangolin::glDrawRect(p + 0, p + b, p + b, p + h - b);      // Left
+  pangolin::glDrawRect(p + w - b, p + b, p + w, p + h - b);  // Right
+}
+
+void VIOUIBase::do_show_codec_keyframe(size_t cam_id) {
+  // Draw a 10 px blue border around the image
+  const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
+  if (curr_vis_data == nullptr) return;
+
+  bool is_keyframe = curr_vis_data->opt_flow_res->input_images->img_data.at(cam_id).keyframe;
+  bool is_post_keyframe = curr_vis_data->opt_flow_res->input_images->had_iframe_before;
+  if (!is_keyframe && !is_post_keyframe) return;
+
+  float w = calib.resolution.at(0).x();
+  float h = calib.resolution.at(0).y();
+  float b = 8.0f;
+  float p = -0.5f;  // Off-center pixel
+
+  if (is_keyframe)
+    glColor4f(0.0, 1.0, 0.0, 0.5);  // Low opacity green
+  else if (is_post_keyframe)
+    glColor4f(1.0, 0.5, 0.0, 0.75);  // Low opacity orange
+
   pangolin::glDrawRect(p + 0, p + 0, p + w, p + b);          // Top
   pangolin::glDrawRect(p + 0, p + h - b, p + w, p + h);      // Bottom
   pangolin::glDrawRect(p + 0, p + b, p + b, p + h - b);      // Left

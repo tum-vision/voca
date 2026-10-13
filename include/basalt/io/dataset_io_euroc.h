@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef DATASET_IO_EUROC_H
 #define DATASET_IO_EUROC_H
 
+#include <cmath>
 #include <memory>
 
 #include <basalt/io/dataset_io.h>
@@ -45,12 +46,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <set>
 #include <filesystem>
 #include <iterator>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/videoio.hpp>
+#include <set>
 #include <string>
 
 namespace basalt {
@@ -86,10 +87,10 @@ class EurocVioDataset : public VioDataset {
 
  public:
   ~EurocVioDataset() override {
-    for (cv::VideoCapture& cap : caps) {
+    for (cv::VideoCapture &cap : caps) {
       cap.release();
     }
-    for (VideoCap& mv_cap : mv_caps) {
+    for (VideoCap &mv_cap : mv_caps) {
       mv_cap.release();
     }
   }
@@ -111,7 +112,7 @@ class EurocVioDataset : public VioDataset {
     // and after that the use_mvs flag is set on the dataset object making this necessary
     if (!use_mvs && mv_caps.size() > 0) {
       //			std::cout << "NOT using motion vectors for tracking guesses!" << std::endl;
-      for (VideoCap& mv_cap : mv_caps) {
+      for (VideoCap &mv_cap : mv_caps) {
         mv_cap.release();
       }
       mv_caps.clear();
@@ -159,8 +160,8 @@ class EurocVioDataset : public VioDataset {
       cv::Mat img;
 
       if (use_mvs && !fs::exists(full_video_path) && mv_warning_shown_cams.count(i) == 0) {
-        std::cout << "WARNING: --use-mvs is enabled but no video file found at "
-                  << full_video_path << ". Motion vectors will not be available for cam" << i
+        std::cout << "WARNING: --use-mvs is enabled but no video file found at " << full_video_path
+                  << ". Motion vectors will not be available for cam" << i
                   << ". To use motion vectors, encode your image sequences into data.mp4 "
                   << "with the provided ffmpeg command." << std::endl;
         mv_warning_shown_cams.insert(i);
@@ -190,8 +191,9 @@ class EurocVioDataset : public VioDataset {
           MVS_DTYPE *motion_vectors = nullptr;
           MVS_DTYPE num_mvs = 0;
           double frame_timestamp = 0;
+          bool is_keyframe = false;
           ret = (mv_caps[i].retrieve(&frame, &step, &width, &height, &cn, frame_type, &motion_vectors, &num_mvs,
-                                     &frame_timestamp));
+                                     &frame_timestamp, &is_keyframe));
           if (ret < 0) {
             if (ret == AVERROR(EOF) || ret == AVERROR_EOF) {
               std::cout << "no more frames to read here" << std::endl;
@@ -204,6 +206,12 @@ class EurocVioDataset : public VioDataset {
             //						std::cout << "Successfully read " << num_mvs << " motion vectors
             // of frame (num: " << frameNumber << ") at timestamp " << t_ns << "." << std::endl;
             res.at(i).motion_vectors.reserve(num_mvs);
+            res.at(i).keyframe = frame_type[0] == 'I' || num_mvs == 0;
+            // res.at(i).keyframe |= is_keyframe;
+            if (res.at(i).keyframe) {
+              // printf("[%ld] frame_type: %d, mv0: %d, is_keyframe: %d\n", frameNumber, frame_type[0] == 'I',
+              //        num_mvs == 0, is_keyframe);
+            }
             for (MVS_DTYPE j = 0; j < num_mvs * 10; j = j + 10) {
               int source = motion_vectors[j];
               int bw = motion_vectors[j + 1];
